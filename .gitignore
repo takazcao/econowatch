@@ -1,0 +1,48 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables (secrets)
+.env
+.env.*
+!.env.example
+
+# Database
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# SSL / Certificates (never commit private keys)
+*.pem
+*.key
+*.cert
+*.crt
+
+# Documentation (keep local only, do not push to GitHub)
+docs/
+*.md
+CLAUDE.md
+
+# Claude Code skills and config (local dev tools — do not push)
+.claude/
