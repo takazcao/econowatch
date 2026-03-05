@@ -31,23 +31,54 @@ FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 DEFAULT_TICKERS = [
+    # ── US Mega-Cap Stocks ────────────────────────────
     ("AAPL",    "Apple"),
     ("MSFT",    "Microsoft"),
+    ("NVDA",    "NVIDIA"),
     ("GOOGL",   "Alphabet"),
-    ("TSLA",    "Tesla"),
     ("AMZN",    "Amazon"),
+    ("META",    "Meta"),
+    ("TSLA",    "Tesla"),
+    ("NFLX",    "Netflix"),
+    ("JPM",     "JPMorgan Chase"),
+    ("V",       "Visa"),
+    ("WMT",     "Walmart"),
+    # ── Market Indices ────────────────────────────────
     ("^GSPC",   "S&P 500"),
     ("^DJI",    "Dow Jones"),
+    ("^IXIC",   "NASDAQ Composite"),
+    ("^RUT",    "Russell 2000"),
+    # ── ETFs ─────────────────────────────────────────
+    ("SPY",     "S&P 500 ETF"),
+    ("QQQ",     "NASDAQ ETF"),
     ("GLD",     "Gold ETF"),
+    ("SLV",     "Silver ETF"),
+    ("USO",     "Oil ETF"),
+    ("TLT",     "Long-Term Treasury ETF"),
+    # ── Crypto ───────────────────────────────────────
     ("BTC-USD", "Bitcoin"),
+    ("ETH-USD", "Ethereum"),
+    ("SOL-USD", "Solana"),
+    ("BNB-USD", "BNB"),
 ]
 
 FRED_SERIES = [
-    ("CPIAUCSL", "CPI Inflation",      "% YoY"),
-    ("UNRATE",   "Unemployment Rate",  "%"),
-    ("FEDFUNDS", "Fed Funds Rate",     "%"),
-    ("DGS10",    "10-Year Treasury",   "%"),
-    ("GDPC1",    "Real GDP Growth",    "Billions USD"),
+    # ── Inflation & Prices ────────────────────────────
+    ("CPIAUCSL",    "CPI Inflation",            "% YoY"),
+    ("PPIACO",      "Producer Price Index",     "Index"),
+    ("T10YIE",      "Breakeven Inflation 10Y",  "%"),
+    ("DCOILWTICO",  "Crude Oil WTI",            "$ / Barrel"),
+    # ── Employment & Growth ───────────────────────────
+    ("UNRATE",      "Unemployment Rate",        "%"),
+    ("GDPC1",       "Real GDP Growth",          "Billions USD"),
+    # ── Interest Rates ────────────────────────────────
+    ("FEDFUNDS",    "Fed Funds Rate",           "%"),
+    ("DGS10",       "10-Year Treasury",         "%"),
+    ("DGS2",        "2-Year Treasury",          "%"),
+    ("MORTGAGE30US","30-Year Mortgage Rate",    "%"),
+    # ── Money & Credit ────────────────────────────────
+    ("M2SL",        "M2 Money Supply",          "Billions USD"),
+    ("VIXCLS",      "VIX Volatility Index",     "Index"),
 ]
 
 # Simple in-memory cache: ticker -> (is_valid, timestamp)

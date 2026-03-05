@@ -10,6 +10,7 @@ Functions:
     get_movers() -> Response: Return top daily gainers and losers as JSON
     search_ticker() -> Response: Validate a ticker symbol and return its name
     get_status() -> Response: Return server status and last data update time
+    get_analysis(ticker) -> Response: Return technical analysis as JSON
 """
 import logging
 import os
@@ -19,6 +20,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
+import analysis
 import database
 import scraper
 
@@ -231,6 +233,36 @@ def search_ticker():
         pass
 
     return jsonify({"valid": True, "ticker": query, "name": name, "error": None}), 200
+
+
+@app.route("/api/watchlist")
+def get_watchlist():
+    """Route: GET /api/watchlist — Return all tickers in the watchlist."""
+    rows = database.get_watchlist()
+    return jsonify([{"ticker": r["ticker"], "name": r["name"]} for r in rows]), 200
+
+
+@app.route("/api/analysis/<string:ticker>")
+def get_analysis(ticker: str):
+    """Route: GET /api/analysis/<ticker>?period=3mo — Return TA analysis as JSON."""
+    ticker = ticker.upper()
+
+    if not _is_valid_ticker_format(ticker):
+        return jsonify({"error": "Invalid ticker format"}), 400
+
+    period = request.args.get("period", "3mo").lower()
+    if period not in VALID_PERIODS:
+        period = "3mo"
+
+    if _is_stale(ticker):
+        logger.info("Data stale for %s — fetching before analysis", ticker)
+        scraper.fetch_stock_prices(ticker, period)
+
+    result = analysis.generate_analysis(ticker, period)
+    if not result:
+        return jsonify({"error": "Not enough data for analysis"}), 404
+
+    return jsonify(result), 200
 
 
 @app.route("/api/status")
