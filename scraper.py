@@ -1,15 +1,16 @@
 """
 scraper.py
 ----------
-Fetches stock prices from yfinance and economic indicators from FRED API,
-then saves them to the SQLite database via database.py.
+Fetches stock prices from yfinance and economic indicators from FRED API
+and CoinMarketCap API, then saves them to the SQLite database via database.py.
 
 Functions:
     validate_ticker(ticker) -> bool: Check if a ticker exists on yfinance
     fetch_stock_prices(ticker, period) -> bool: Fetch OHLCV data and save to DB
     fetch_watchlist_prices() -> None: Fetch prices for all watchlist tickers
     fetch_fred_series(series_id, name, unit) -> bool: Fetch one FRED series and save to DB
-    fetch_all_indicators() -> None: Fetch all configured FRED indicators
+    fetch_all_indicators() -> None: Fetch all FRED + CMC indicators
+    fetch_cmc_metrics() -> bool: Fetch BTC dominance + stablecoin market cap from CMC
 """
 import logging
 import os
@@ -26,8 +27,10 @@ import database
 # ── Constants ────────────────────────────────────────
 load_dotenv()
 DB_PATH = Path(os.getenv("DB_PATH", "data/econowatch.db"))
-FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+FRED_API_KEY  = os.getenv("FRED_API_KEY", "")
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
+CMC_API_KEY   = os.getenv("CMC_API_KEY", "")
+CMC_BASE_URL  = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 DEFAULT_TICKERS = [
@@ -51,8 +54,8 @@ DEFAULT_TICKERS = [
     # ── ETFs ─────────────────────────────────────────
     ("SPY",     "S&P 500 ETF"),
     ("QQQ",     "NASDAQ ETF"),
-    ("GLD",     "Gold ETF"),
-    ("SLV",     "Silver ETF"),
+    ("GC=F",    "Gold XAU/USD"),
+    ("SI=F",    "Silver XAG/USD"),
     ("USO",     "Oil ETF"),
     ("TLT",     "Long-Term Treasury ETF"),
     # ── Crypto ───────────────────────────────────────
@@ -79,6 +82,14 @@ FRED_SERIES = [
     # ── Money & Credit ────────────────────────────────
     ("M2SL",        "M2 Money Supply",          "Billions USD"),
     ("VIXCLS",      "VIX Volatility Index",     "Index"),
+    # ── Dollar & Liquidity ────────────────────────────
+    ("DTWEXBGS",    "US Dollar Index (DXY)",    "Index"),
+    ("WALCL",       "Fed Balance Sheet",        "Billions USD"),
+    # ── Employment & Spending ─────────────────────────
+    ("PAYEMS",      "Non-Farm Payrolls",        "Thousands"),
+    ("RSXFS",       "Retail Sales",             "Millions USD"),
+    # ── Credit Risk ───────────────────────────────────
+    ("BAMLH0A0HYM2","HY Credit Spreads",       "%"),
 ]
 
 # Simple in-memory cache: ticker -> (is_valid, timestamp)
@@ -245,11 +256,60 @@ def fetch_fred_series(series_id: str, name: str, unit: str) -> bool:
         return False
 
 
+def fetch_cmc_metrics() -> bool:
+    """
+    Fetch Bitcoin dominance and stablecoin market cap from CoinMarketCap API.
+
+    Calls /v1/global-metrics/quotes/latest and saves two indicators:
+        - BTC_DOMINANCE: Bitcoin's % share of total crypto market cap
+        - STABLECOIN_MCAP: Total stablecoin market cap (Billions USD)
+
+    Returns:
+        True if both metrics were saved successfully, False on failure.
+    """
+    if not CMC_API_KEY:
+        logger.warning("CMC_API_KEY not set — skipping CoinMarketCap fetch")
+        return False
+
+    try:
+        headers  = {"X-CMC_PRO_API_KEY": CMC_API_KEY, "Accept": "application/json"}
+        response = requests.get(CMC_BASE_URL, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json().get("data", {})
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        btc_dominance = data.get("btc_dominance")
+        stablecoin_mcap = data.get("stablecoin_market_cap")
+
+        if btc_dominance is None or stablecoin_mcap is None:
+            logger.error("CMC response missing expected fields: %s", list(data.keys()))
+            return False
+
+        database.insert_indicator("BTC_DOMINANCE",   "Bitcoin Dominance",       today, float(btc_dominance),           "%")
+        database.insert_indicator("STABLECOIN_MCAP", "Stablecoin Market Cap",   today, round(stablecoin_mcap / 1e9, 2), "Billions USD")
+
+        logger.info(
+            "CMC metrics saved — BTC dominance: %.2f%%, Stablecoin market cap: $%.1fB",
+            btc_dominance,
+            stablecoin_mcap / 1e9,
+        )
+        return True
+
+    except requests.HTTPError as e:
+        logger.error("HTTP error fetching CMC metrics: %s", e)
+        return False
+    except Exception as e:
+        logger.error("Unexpected error fetching CMC metrics: %s", e)
+        return False
+
+
 def fetch_all_indicators() -> None:
     """
-    Fetch all configured FRED economic indicator series and save to the database.
+    Fetch all configured FRED and CMC economic indicators and save to the database.
 
-    Loops through FRED_SERIES constant and calls fetch_fred_series() for each.
+    Loops through FRED_SERIES constant and calls fetch_fred_series() for each,
+    then calls fetch_cmc_metrics() for CoinMarketCap data.
     Logs a summary of results.
     """
     success_count = 0
@@ -262,6 +322,12 @@ def fetch_all_indicators() -> None:
         else:
             fail_count += 1
         time.sleep(0.3)  # avoid rate limiting
+
+    cmc_ok = fetch_cmc_metrics()
+    if cmc_ok:
+        success_count += 1
+    else:
+        fail_count += 1
 
     logger.info(
         "fetch_all_indicators complete — %d succeeded, %d failed",

@@ -11,7 +11,10 @@ Functions:
     search_ticker() -> Response: Validate a ticker symbol and return its name
     get_status() -> Response: Return server status and last data update time
     get_analysis(ticker) -> Response: Return technical analysis as JSON
+    get_macro() -> Response: Return macro regime analysis as JSON
+    get_indicator_history(series_id) -> Response: Return historical values for one indicator as JSON
 """
+import atexit
 import logging
 import os
 from datetime import datetime, timedelta
@@ -22,6 +25,7 @@ from flask import Flask, jsonify, render_template, request
 
 import analysis
 import database
+import scheduler
 import scraper
 
 # ── Constants ────────────────────────────────────────
@@ -31,14 +35,27 @@ FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev_secret")
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "False").lower() == "true"
 STALE_THRESHOLD_MINUTES = 15
 
-VALID_PERIODS = {"5d", "1mo", "3mo", "6mo", "1y"}
+VALID_PERIODS = {"1d", "5d", "1w", "1mo", "3mo", "6mo", "1y"}
 
 PERIOD_TO_DAYS = {
+    "1d":  2,    # yesterday + today
     "5d":  5,
+    "1w":  7,    # ~5 trading days
     "1mo": 30,
     "3mo": 90,
     "6mo": 180,
     "1y":  365,
+}
+
+# yfinance only accepts specific period strings — map custom periods to nearest valid one
+PERIOD_TO_YFINANCE = {
+    "1d":  "5d",   # need at least 2 daily candles; fetch 5d then slice to 2
+    "5d":  "5d",
+    "1w":  "5d",   # 1 trading week ≈ 5 trading days
+    "1mo": "1mo",
+    "3mo": "3mo",
+    "6mo": "6mo",
+    "1y":  "1y",
 }
 
 logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
@@ -87,7 +104,7 @@ def _is_valid_ticker_format(ticker: str) -> bool:
     Returns:
         True if format is valid, False otherwise.
     """
-    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-^.")
+    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-^.=")
     return bool(ticker) and all(c in allowed for c in ticker.upper())
 
 
@@ -116,12 +133,13 @@ def get_stock(ticker: str):
     if period not in VALID_PERIODS:
         return jsonify({"error": f"Invalid period. Use one of: {', '.join(VALID_PERIODS)}"}), 400
 
-    days = PERIOD_TO_DAYS[period]
+    days        = PERIOD_TO_DAYS[period]
+    yf_period   = PERIOD_TO_YFINANCE[period]
 
-    # Fetch fresh data if stale or missing
+    # Fetch fresh data if stale or missing (use yfinance-compatible period)
     if _is_stale(ticker):
         logger.info("Data stale for %s — fetching from yfinance", ticker)
-        scraper.fetch_stock_prices(ticker, period)
+        scraper.fetch_stock_prices(ticker, yf_period)
 
     rows = database.get_stock_history(ticker, days)
 
@@ -133,9 +151,11 @@ def get_stock(ticker: str):
     volumes = [int(r["volume"]) if r["volume"] else 0 for r in rows]
 
     latest_close = prices[-1] if prices else None
+
+    # change_pct = full period change: first price in window vs latest
     change_pct = None
-    if len(prices) >= 2 and prices[-2]:
-        change_pct = round((prices[-1] - prices[-2]) / prices[-2] * 100, 2)
+    if len(prices) >= 2 and prices[0]:
+        change_pct = round((prices[-1] - prices[0]) / prices[0] * 100, 2)
 
     return jsonify({
         "ticker":       ticker,
@@ -256,12 +276,47 @@ def get_analysis(ticker: str):
 
     if _is_stale(ticker):
         logger.info("Data stale for %s — fetching before analysis", ticker)
-        scraper.fetch_stock_prices(ticker, period)
+        scraper.fetch_stock_prices(ticker, PERIOD_TO_YFINANCE.get(period, period))
 
     result = analysis.generate_analysis(ticker, period)
     if not result:
         return jsonify({"error": "Not enough data for analysis"}), 404
 
+    return jsonify(result), 200
+
+
+@app.route("/api/indicator/<string:series_id>")
+def get_indicator_history(series_id: str):
+    """Route: GET /api/indicator/<series_id>?days=30 — Return historical values for one indicator."""
+    series_id = series_id.upper()
+    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+    if not series_id or not all(c in allowed for c in series_id):
+        return jsonify({"error": "Invalid series_id format"}), 400
+
+    days = request.args.get("days", 30)
+    try:
+        days = int(days)
+    except ValueError:
+        days = 30
+
+    rows = database.get_indicator_history(series_id, days)
+    if not rows:
+        return jsonify({"error": f"No data found for {series_id}"}), 404
+
+    return jsonify({
+        "series_id": series_id,
+        "labels":    [r["date"] for r in rows],
+        "values":    [round(r["value"], 4) for r in rows],
+        "unit":      rows[-1]["unit"],
+    }), 200
+
+
+@app.route("/api/macro")
+def get_macro():
+    """Route: GET /api/macro — Return macro regime analysis and asset class recommendation."""
+    result = analysis.generate_macro_analysis()
+    if not result:
+        return jsonify({"error": "No indicator data available for macro analysis"}), 404
     return jsonify(result), 200
 
 
@@ -301,4 +356,6 @@ def server_error(error):
 
 if __name__ == "__main__":
     database.init_db()
+    scheduler.start_scheduler()
+    atexit.register(scheduler.stop_scheduler)
     app.run(debug=FLASK_DEBUG, port=5000)
