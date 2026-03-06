@@ -300,7 +300,9 @@
                 <div class="card-header d-flex align-items-center justify-content-between">
                     <span id="chart-title">Select a ticker to view chart</span>
                     <div class="period-tabs d-flex gap-1" id="period-tabs">
+                        <button class="btn" data-period="1d">1D</button>
                         <button class="btn" data-period="5d">5D</button>
+                        <button class="btn" data-period="1w">1W</button>
                         <button class="btn active" data-period="1mo">1M</button>
                         <button class="btn" data-period="3mo">3M</button>
                         <button class="btn" data-period="6mo">6M</button>
@@ -385,6 +387,127 @@
         </div>
     </div>
 
+    <!-- Macro Regime Analysis -->
+    <div class="row mb-3 g-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-globe2"></i> Macro Regime Analysis
+                    <span id="macro-loading" class="loading-spinner ms-2" style="display:none;"></span>
+                    <span id="macro-regime-badge" class="badge ms-auto" style="display:none;"></span>
+                </div>
+                <div class="card-body">
+                    <!-- Recommendation Bar -->
+                    <div id="macro-recommendation" style="display:none;">
+                        <div class="row g-3 mb-3">
+                            <!-- Best Pick -->
+                            <div class="col-12 col-md-4">
+                                <div class="p-3 rounded text-center" style="background:#0d1117; border:1px solid #30363d;">
+                                    <div class="text-muted mb-1" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Best Asset Class</div>
+                                    <div id="macro-best-asset" class="fw-bold" style="font-size:1.4rem;"></div>
+                                    <div id="macro-confidence" class="text-muted mt-1" style="font-size:0.8rem;"></div>
+                                </div>
+                            </div>
+                            <!-- Point Gauges -->
+                            <div class="col-12 col-md-8">
+                                <div class="p-3 rounded" style="background:#0d1117; border:1px solid #30363d;">
+                                    <div class="text-muted mb-3" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Bullish Score (1–10)</div>
+                                    <div id="macro-score-bars"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Capital Flow Allocation -->
+                        <div class="row g-3 mb-3">
+                            <div class="col-12 col-md-5">
+                                <div class="p-3 rounded text-center h-100" style="background:#0d1117; border:1px solid #30363d;">
+                                    <div class="text-muted mb-2" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Capital Flow Allocation</div>
+                                    <canvas id="flow-donut" style="max-height:200px;"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-12 col-md-7 d-flex align-items-stretch">
+                                <div class="p-3 rounded w-100" style="background:#0d1117; border:1px solid #30363d;">
+                                    <div class="text-muted mb-2" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Smart Money Rotation</div>
+                                    <p id="flow-verdict" class="mb-3" style="font-size:0.88rem; line-height:1.7;"></p>
+                                    <div id="flow-pct-labels" class="d-flex gap-4 flex-wrap"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Summary -->
+                        <div class="p-3 rounded mb-3" style="background:#0d1117; border:1px solid #30363d;">
+                            <div class="text-muted mb-1" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Analysis Summary</div>
+                            <p id="macro-summary" class="mb-0" style="font-size:0.9rem; line-height:1.6;"></p>
+                        </div>
+                        <!-- Yield Curve Warning -->
+                        <div id="macro-yield-warning" class="alert mb-3 py-2" style="display:none; background:#2d1a00; border:1px solid #8a4700; color:#ffa657; font-size:0.85rem;">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <strong>Yield Curve Inverted</strong> — The 2-Year Treasury yield exceeds the 10-Year yield, a historically reliable recession indicator.
+                        </div>
+                        <!-- Indicator Breakdown Table -->
+                        <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em; color:#8b949e;" class="mb-2">Indicator Breakdown</div>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-sm mb-0" style="font-size:0.82rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Indicator</th>
+                                        <th class="text-end">Value</th>
+                                        <th class="text-center">Trend</th>
+                                        <th class="text-center">Stocks</th>
+                                        <th class="text-center">Gold</th>
+                                        <th class="text-center">Crypto</th>
+                                        <th class="d-none d-md-table-cell">Impact</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="macro-breakdown-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="macro-placeholder" class="text-muted text-center py-3">
+                        <span class="loading-spinner me-2"></span> Loading macro analysis…
+                    </div>
+                    <div id="macro-error" class="error-msg mt-2" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crypto Market Metrics -->
+    <div class="row mb-3 g-3">
+        <!-- BTC Dominance -->
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-currency-bitcoin"></i> Bitcoin Dominance
+                    <span id="btc-dom-loading" class="loading-spinner ms-2" style="display:none;"></span>
+                    <span id="btc-dom-value" class="ms-auto fw-bold" style="font-size:1.1rem;"></span>
+                </div>
+                <div class="card-body">
+                    <div id="btc-dom-placeholder" class="text-center py-4 text-muted" style="font-size:0.82rem;">Loading…</div>
+                    <canvas id="btc-dom-chart" style="display:none; max-height:160px;"></canvas>
+                    <p id="btc-dom-note" class="text-muted mb-0 mt-2" style="font-size:0.75rem; display:none;">
+                        Rising dominance = capital rotating from Altcoins into Bitcoin (macro neutral).
+                    </p>
+                </div>
+            </div>
+        </div>
+        <!-- Stablecoin Market Cap -->
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-bank"></i> Stablecoin Market Cap
+                    <span id="stable-mcap-loading" class="loading-spinner ms-2" style="display:none;"></span>
+                    <span id="stable-mcap-value" class="ms-auto fw-bold" style="font-size:1.1rem;"></span>
+                </div>
+                <div class="card-body">
+                    <div id="stable-mcap-placeholder" class="text-center py-4 text-muted" style="font-size:0.82rem;">Loading…</div>
+                    <canvas id="stable-mcap-chart" style="display:none; max-height:160px;"></canvas>
+                    <p id="stable-mcap-note" class="text-muted mb-0 mt-2" style="font-size:0.75rem; display:none;">
+                        Expanding stablecoin supply = new liquidity entering the crypto ecosystem (Crypto bullish).
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Movers Row -->
     <div class="row mb-3 g-3">
         <!-- Gainers -->
@@ -455,8 +578,8 @@
 "use strict";
 
 // ── Constants ─────────────────────────────────────────
-const PERIOD_MAP = { "5d": "5d", "1mo": "1mo", "3mo": "3mo", "6mo": "6mo", "1y": "1y" };
-const PERIOD_LABEL = { "5d": "5 Days", "1mo": "1 Month", "3mo": "3 Months", "6mo": "6 Months", "1y": "1 Year" };
+const PERIOD_MAP = { "1d": "1d", "5d": "5d", "1w": "1w", "1mo": "1mo", "3mo": "3mo", "6mo": "6mo", "1y": "1y" };
+const PERIOD_LABEL = { "1d": "1 Day", "5d": "5 Days", "1w": "1 Week", "1mo": "1 Month", "3mo": "3 Months", "6mo": "6 Months", "1y": "1 Year" };
 const REFRESH_INTERVAL_SEC = 300; // 5 minutes
 
 // ── State ─────────────────────────────────────────────
@@ -886,6 +1009,188 @@ function renderMovers(type, rows, isGain) {
     show(type + "-table");
 }
 
+// ── Macro Regime Analysis ─────────────────────────────
+async function loadMacro() {
+    show("macro-loading");
+    try {
+        const res  = await fetch("/api/macro");
+        const data = await res.json();
+        hide("macro-loading");
+
+        if (data.error) {
+            el("macro-error").textContent = data.error;
+            showBlock("macro-error");
+            hide("macro-placeholder");
+            return;
+        }
+
+        renderMacro(data);
+    } catch (e) {
+        hide("macro-loading");
+        el("macro-error").textContent = "Failed to load macro analysis.";
+        showBlock("macro-error");
+        hide("macro-placeholder");
+    }
+}
+
+function renderMacro(data) {
+    hide("macro-placeholder");
+
+    // Regime badge
+    const regimeColors = {
+        "Risk-On":             ["#1a3d1a", "#3fb950"],
+        "Risk-Off":            ["#3d1a1a", "#f85149"],
+        "Inflationary":        ["#3d2e00", "#d29922"],
+        "Stagflationary":      ["#3d1a00", "#ffa657"],
+        "Recessionary":        ["#2d1a2d", "#bc8cff"],
+        "Mixed / Transitional":["#1c2128", "#8b949e"],
+    };
+    const [bgCol, txtCol] = regimeColors[data.regime] || ["#1c2128", "#8b949e"];
+    const badge = el("macro-regime-badge");
+    badge.textContent = data.regime;
+    badge.style.background = bgCol;
+    badge.style.color = txtCol;
+    badge.style.border = `1px solid ${txtCol}`;
+    badge.style.fontSize = "0.75rem";
+    show("macro-regime-badge");
+
+    // Best asset
+    const assetIcons = { STOCKS: "📈", GOLD: "🥇", CRYPTO: "₿", MIXED: "⚖️" };
+    const assetColors = { STOCKS: "#58a6ff", GOLD: "#d29922", CRYPTO: "#bc8cff", MIXED: "#8b949e" };
+    const rec = data.recommendation;
+    const assetEl = el("macro-best-asset");
+    assetEl.textContent = (assetIcons[rec] || "") + " " + rec;
+    assetEl.style.color = assetColors[rec] || "#e6edf3";
+    el("macro-confidence").textContent = `Confidence: ${data.confidence}%`;
+
+    // 1–10 Point Gauges
+    const points = data.points;
+    const gaugeItems = [
+        { label: "Stocks", key: "stocks", icon: "📈", baseColor: "#58a6ff" },
+        { label: "Gold",   key: "gold",   icon: "🥇", baseColor: "#d29922" },
+        { label: "Crypto", key: "crypto", icon: "₿",  baseColor: "#bc8cff" },
+    ];
+
+    function pointColor(p) {
+        if (p >= 7) return "#3fb950";
+        if (p >= 4) return "#d29922";
+        return "#f85149";
+    }
+    function pointLabel(p) {
+        if (p >= 8) return "Very Bullish";
+        if (p >= 7) return "Bullish";
+        if (p >= 4) return "Neutral";
+        if (p >= 2) return "Bearish";
+        return "Very Bearish";
+    }
+
+    const detail = data.points_detail;
+    el("macro-score-bars").innerHTML = gaugeItems.map(b => {
+        const pt  = points[b.key];
+        const col = pointColor(pt);
+        const lbl = pointLabel(pt);
+        const d   = detail[b.key];
+
+        // Explanation: "6 of 9 active indicators bullish → 7/10"
+        const explain = `${d.bullish} of ${d.total_active} active indicators bullish`
+            + ` (${d.bearish} bearish, ${d.neutral} neutral)`;
+
+        const pips = Array.from({length: 10}, (_, i) => {
+            const filled = (i + 1) <= pt;
+            return `<div style="flex:1; height:10px; background:${filled ? col : "#21262d"}; border-radius:2px; margin:0 1px;"></div>`;
+        }).join("");
+
+        return `<div class="mb-3">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+                <div style="font-size:0.85rem; font-weight:600; color:#e6edf3;">${b.icon} ${b.label}</div>
+                <div class="d-flex align-items-center gap-2">
+                    <span style="font-size:0.72rem; color:${col};">${lbl}</span>
+                    <span style="font-size:1.2rem; font-weight:700; color:${col}; min-width:24px; text-align:right;">${pt}</span>
+                    <span style="font-size:0.72rem; color:#8b949e;">/ 10</span>
+                </div>
+            </div>
+            <div class="d-flex mb-1" style="height:10px;">${pips}</div>
+            <div style="font-size:0.72rem; color:#8b949e;">${explain}</div>
+        </div>`;
+    }).join("");
+
+    // Capital Flow Donut
+    if (data.flow_pct) {
+        const fp     = data.flow_pct;
+        const labels = ["Stocks", "Gold", "Crypto"];
+        const vals   = [fp.stocks, fp.gold, fp.crypto];
+        const colors = ["#58a6ff", "#d29922", "#bc8cff"];
+
+        el("flow-verdict").textContent = data.flow_verdict || "";
+
+        el("flow-pct-labels").innerHTML = labels.map((lbl, i) =>
+            `<div style="text-align:center; min-width:60px;">
+                <div style="font-size:1.3rem; font-weight:700; color:${colors[i]};">${vals[i]}%</div>
+                <div style="font-size:0.72rem; color:#8b949e;">${lbl}</div>
+            </div>`
+        ).join("");
+
+        if (window._flowDonutChart) window._flowDonutChart.destroy();
+        window._flowDonutChart = new Chart(el("flow-donut"), {
+            type: "doughnut",
+            data: {
+                labels,
+                datasets: [{
+                    data: vals,
+                    backgroundColor: colors.map(c => c + "99"),
+                    borderColor: colors,
+                    borderWidth: 2,
+                    hoverOffset: 8,
+                }],
+            },
+            options: {
+                responsive: true,
+                cutout: "62%",
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: "bottom",
+                        labels: { color: "#8b949e", font: { size: 11 }, padding: 14 },
+                    },
+                    tooltip: {
+                        callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}%` },
+                    },
+                },
+            },
+        });
+    }
+
+    // Summary
+    el("macro-summary").textContent = data.summary;
+
+    // Yield curve warning
+    if (data.yield_curve_inverted) {
+        show("macro-yield-warning");
+    }
+
+    // Breakdown table
+    const voteIcon = v => v > 0
+        ? '<span style="color:#3fb950; font-weight:700;">+1</span>'
+        : v < 0
+        ? '<span style="color:#f85149; font-weight:700;">-1</span>'
+        : '<span style="color:#8b949e;">0</span>';
+    const trendIcon = t => t === "up" ? '<span style="color:#3fb950">↑ Rising</span>' : t === "down" ? '<span style="color:#f85149">↓ Falling</span>' : '<span style="color:#8b949e">→ Flat</span>';
+    const tbody = el("macro-breakdown-body");
+    tbody.innerHTML = (data.breakdown || []).map(r =>
+        `<tr>
+            <td>${escHtml(r.name)}</td>
+            <td class="text-end">${fmtNum(r.value)} ${escHtml(r.unit)}</td>
+            <td class="text-center">${trendIcon(r.trend)}</td>
+            <td class="text-center">${voteIcon(r.stocks_vote)}</td>
+            <td class="text-center">${voteIcon(r.gold_vote)}</td>
+            <td class="text-center">${voteIcon(r.crypto_vote)}</td>
+            <td class="d-none d-md-table-cell" style="color:#8b949e; font-size:0.78rem;">${escHtml(r.impact)}</td>
+        </tr>`
+    ).join("");
+
+    show("macro-recommendation");
+}
+
 // ── Analysis Panel ────────────────────────────────────
 async function loadAnalysis(ticker, period) {
     show("analysis-row");
@@ -1026,6 +1331,85 @@ function renderAnalysis(d) {
     el("analysis-updated").textContent = "Updated: " + (d.last_updated || "—");
 }
 
+// ── Crypto Market Metrics ─────────────────────────────
+let _btcDomChart = null;
+let _stableMcapChart = null;
+
+async function loadCryptoMetrics() {
+    show("btc-dom-loading");
+    show("stable-mcap-loading");
+    try {
+        const [btcRes, stableRes] = await Promise.all([
+            fetch("/api/indicator/BTC_DOMINANCE?days=60"),
+            fetch("/api/indicator/STABLECOIN_MCAP?days=60"),
+        ]);
+        const btcData    = btcRes.ok    ? await btcRes.json()    : null;
+        const stableData = stableRes.ok ? await stableRes.json() : null;
+
+        renderMetricChart("btc-dom", btcData,    "Bitcoin Dominance (%)",       "%",       "#f7931a");
+        renderMetricChart("stable-mcap", stableData, "Stablecoin Market Cap ($B)", "B",    "#26a17b");
+    } catch (e) {
+        console.error("loadCryptoMetrics error:", e);
+    } finally {
+        hide("btc-dom-loading");
+        hide("stable-mcap-loading");
+    }
+}
+
+function renderMetricChart(prefix, data, label, unit, color) {
+    const placeholder = el(prefix + "-placeholder");
+    const canvas      = el(prefix + "-chart");
+    const valueEl     = el(prefix + "-value");
+    const noteEl      = el(prefix + "-note");
+
+    if (!data || !data.values || data.values.length === 0) {
+        placeholder.textContent = "No data yet — will populate as scheduler runs.";
+        placeholder.style.display = "";
+        canvas.style.display = "none";
+        return;
+    }
+
+    const latest = data.values[data.values.length - 1];
+    const prev   = data.values.length > 1 ? data.values[data.values.length - 2] : null;
+    const change = prev !== null ? latest - prev : 0;
+    const arrow  = change > 0 ? "▲" : change < 0 ? "▼" : "—";
+    const clr    = change > 0 ? "#3fb950" : change < 0 ? "#f85149" : "#8b949e";
+
+    valueEl.innerHTML = `${latest.toFixed(2)}${unit} <span style="color:${clr};font-size:0.8rem;">${arrow}</span>`;
+
+    placeholder.style.display = "none";
+    canvas.style.display = "";
+    noteEl.style.display = "";
+
+    const chartKey = prefix === "btc-dom" ? "_btcDomChart" : "_stableMcapChart";
+    if (window[chartKey]) window[chartKey].destroy();
+
+    window[chartKey] = new Chart(canvas, {
+        type: "line",
+        data: {
+            labels: data.labels,
+            datasets: [{
+                label,
+                data: data.values,
+                borderColor: color,
+                backgroundColor: color + "22",
+                borderWidth: 2,
+                pointRadius: data.values.length === 1 ? 4 : 2,
+                fill: true,
+                tension: 0.3,
+            }],
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: "#8b949e", maxTicksLimit: 6, font: { size: 10 } }, grid: { color: "#21262d" } },
+                y: { ticks: { color: "#8b949e", font: { size: 10 } }, grid: { color: "#21262d" } },
+            },
+        },
+    });
+}
+
 // ── Refresh Countdown ─────────────────────────────────
 function startRefreshCountdown() {
     refreshTimer = REFRESH_INTERVAL_SEC;
@@ -1047,6 +1431,8 @@ function startRefreshCountdown() {
 function refreshAll() {
     loadStatus();
     loadIndicators();
+    loadMacro();
+    loadCryptoMetrics();
     loadMovers();
     if (currentTicker) loadChart(currentTicker, currentPeriod);
 }
@@ -1065,6 +1451,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadStatus();
     loadWatchlist();
     loadIndicators();
+    loadMacro();
+    loadCryptoMetrics();
     loadMovers();
     startRefreshCountdown();
 });

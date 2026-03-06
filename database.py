@@ -10,6 +10,7 @@ Functions:
     get_stock_history(ticker, days) -> list[dict]: Fetch price rows for a ticker
     insert_indicator(series_id, name, date, value, unit) -> bool: Save one indicator row
     get_indicators() -> list[dict]: Get latest value for each indicator
+    get_indicator_history(series_id, days) -> list[dict]: Fetch historical values for one indicator
     get_top_movers(limit) -> dict: Return top gainers and losers from watchlist
     get_watchlist() -> list[dict]: Return all tickers in watchlist
     add_to_watchlist(ticker, name) -> bool: Insert a ticker into watchlist
@@ -233,6 +234,38 @@ def get_indicators() -> list:
         return [dict(row) for row in rows]
     except Exception as e:
         logger.error("Failed to get indicators: %s", e)
+        return []
+
+
+def get_indicator_history(series_id: str, days: int = 30) -> list:
+    """
+    Fetch historical values for a specific economic indicator, ordered by date ascending.
+
+    Args:
+        series_id: The indicator series ID (e.g. "BTC_DOMINANCE").
+        days: Number of most recent data points to return. Defaults to 30.
+
+    Returns:
+        List of dicts with keys: date, value, unit.
+        Returns empty list if no data found.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT date, value, unit
+                FROM economic_indicators
+                WHERE series_id = ?
+                ORDER BY date DESC
+                LIMIT ?
+                """,
+                (series_id, days),
+            )
+            rows = cursor.fetchall()
+        return [dict(row) for row in reversed(rows)]
+    except Exception as e:
+        logger.error("Failed to get indicator history for %s: %s", series_id, e)
         return []
 
 
