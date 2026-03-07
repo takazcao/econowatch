@@ -104,13 +104,21 @@ def start_scheduler() -> None:
         INDICATOR_INTERVAL_MINUTES,
     )
 
-    # Fire an immediate price fetch so the dashboard has data on fresh installs
+    # Fire immediate startup fetches so the dashboard has data on fresh installs
     _scheduler.add_job(
         _job_fetch_prices,
         trigger="date",
         run_date=datetime.now(),
         id="fetch_prices_startup",
         name="Initial price fetch on startup",
+    )
+
+    _scheduler.add_job(
+        _job_fetch_indicators,
+        trigger="date",
+        run_date=datetime.now(),
+        id="fetch_indicators_startup",
+        name="Initial indicators fetch on startup",
     )
 
 
