@@ -1,25 +1,21 @@
 """
 analysis.py
 -----------
-Technical analysis engine for EconoWatch. Computes RSI, SMA crossovers, MACD,
-Bollinger Bands, ATR, and generates buy/sell/hold signals with price targets.
+Technical analysis engine for EconoWatch. Uses pandas-ta for indicator math
+and generates buy/sell/hold signals with price targets and macro regime scoring.
 
 Functions:
-    compute_rsi(closes, period) -> float: Compute RSI indicator
-    compute_sma(closes, period) -> float | None: Compute simple moving average
-    compute_ema(closes, period) -> list[float]: Compute EMA series
-    compute_macd(closes) -> dict: Compute MACD line, signal, histogram
-    compute_bollinger(closes, period) -> dict: Compute Bollinger Bands
-    compute_atr(highs, lows, closes, period) -> float: Compute Average True Range
     find_levels(highs, lows, window) -> dict: Find support and resistance levels
     generate_analysis(ticker, period) -> dict | None: Full TA analysis for a ticker
+    generate_macro_analysis() -> dict: Macro regime + asset class recommendation
 """
 import logging
-import math
 import os
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
+import pandas_ta as ta
 from dotenv import load_dotenv
 
 import database
@@ -39,200 +35,6 @@ PERIOD_TO_DAYS = {
 
 logger = logging.getLogger(__name__)
 
-
-def compute_rsi(closes: list, period: int = 14) -> float:
-    """
-    Compute the Relative Strength Index (RSI) for a series of closing prices.
-
-    Args:
-        closes: List of closing prices, oldest first.
-        period: RSI lookback period. Defaults to 14.
-
-    Returns:
-        RSI value between 0 and 100, or 50.0 if insufficient data.
-    """
-    if len(closes) < period + 1:
-        return 50.0
-
-    gains = []
-    losses = []
-    for i in range(1, len(closes)):
-        delta = closes[i] - closes[i - 1]
-        if delta > 0:
-            gains.append(delta)
-            losses.append(0.0)
-        else:
-            gains.append(0.0)
-            losses.append(abs(delta))
-
-    avg_gain = sum(gains[-period:]) / period
-    avg_loss = sum(losses[-period:]) / period
-
-    if avg_loss == 0:
-        return 100.0
-
-    rs = avg_gain / avg_loss
-    return round(100 - (100 / (1 + rs)), 2)
-
-
-def compute_sma(closes: list, period: int) -> float:
-    """
-    Compute the Simple Moving Average for the last `period` closes.
-
-    Args:
-        closes: List of closing prices, oldest first.
-        period: Number of periods to average.
-
-    Returns:
-        SMA value rounded to 2 decimal places, or None if insufficient data.
-    """
-    if len(closes) < period:
-        return None
-    return round(sum(closes[-period:]) / period, 2)
-
-
-def compute_ema(closes: list, period: int) -> list:
-    """
-    Compute the Exponential Moving Average series for a list of closes.
-
-    Args:
-        closes: List of closing prices, oldest first.
-        period: EMA lookback period.
-
-    Returns:
-        List of EMA values (length = len(closes) - period + 1), or empty list if insufficient data.
-    """
-    if len(closes) < period:
-        return []
-
-    k = 2 / (period + 1)
-    ema_series = [sum(closes[:period]) / period]  # seed with first SMA
-    for price in closes[period:]:
-        ema_series.append(price * k + ema_series[-1] * (1 - k))
-    return ema_series
-
-
-def compute_macd(closes: list) -> dict:
-    """
-    Compute MACD line, signal line, histogram, and trend direction.
-
-    Uses standard 12/26/9 EMA parameters.
-
-    Args:
-        closes: List of closing prices, oldest first.
-
-    Returns:
-        Dict with keys: macd, signal_line, histogram, trend.
-        Returns neutral dict if insufficient data.
-    """
-    neutral = {"macd": 0.0, "signal_line": 0.0, "histogram": 0.0, "trend": "neutral"}
-
-    ema12 = compute_ema(closes, 12)
-    ema26 = compute_ema(closes, 26)
-
-    if not ema12 or not ema26:
-        return neutral
-
-    # ema12 has len(closes)-11 values, ema26 has len(closes)-25 values
-    # align by taking the tail of ema12 that matches ema26 length
-    offset = len(ema12) - len(ema26)
-    if offset < 0:
-        return neutral
-
-    macd_line = [ema12[offset + i] - ema26[i] for i in range(len(ema26))]
-
-    signal_ema = compute_ema(macd_line, 9)
-    if not signal_ema:
-        return neutral
-
-    macd_val = round(macd_line[-1], 4)
-    signal_val = round(signal_ema[-1], 4)
-    histogram = round(macd_val - signal_val, 4)
-    trend = "bullish" if histogram > 0 else ("bearish" if histogram < 0 else "neutral")
-
-    return {
-        "macd":        macd_val,
-        "signal_line": signal_val,
-        "histogram":   histogram,
-        "trend":       trend,
-    }
-
-
-def compute_bollinger(closes: list, period: int = 20) -> dict:
-    """
-    Compute Bollinger Bands for a series of closing prices.
-
-    Args:
-        closes: List of closing prices, oldest first.
-        period: Lookback period for the middle band SMA. Defaults to 20.
-
-    Returns:
-        Dict with keys: upper, middle, lower, pct_b, position.
-        Returns neutral dict if insufficient data.
-    """
-    neutral = {"upper": 0.0, "middle": 0.0, "lower": 0.0, "pct_b": 0.5, "position": "middle"}
-
-    if len(closes) < period:
-        return neutral
-
-    window = closes[-period:]
-    middle = sum(window) / period
-    variance = sum((x - middle) ** 2 for x in window) / period
-    std = math.sqrt(variance)
-
-    upper = round(middle + 2 * std, 2)
-    lower = round(middle - 2 * std, 2)
-    middle = round(middle, 2)
-
-    current = closes[-1]
-    band_range = upper - lower
-    pct_b = round((current - lower) / band_range, 4) if band_range > 0 else 0.5
-
-    if pct_b > 0.8:
-        position = "upper_extreme"
-    elif pct_b > 0.6:
-        position = "upper_third"
-    elif pct_b < 0.2:
-        position = "lower_extreme"
-    elif pct_b < 0.4:
-        position = "lower_third"
-    else:
-        position = "middle"
-
-    return {
-        "upper":    upper,
-        "middle":   middle,
-        "lower":    lower,
-        "pct_b":    pct_b,
-        "position": position,
-    }
-
-
-def compute_atr(highs: list, lows: list, closes: list, period: int = 14) -> float:
-    """
-    Compute the Average True Range (ATR).
-
-    Args:
-        highs: List of daily high prices, oldest first.
-        lows: List of daily low prices, oldest first.
-        closes: List of daily close prices, oldest first.
-        period: ATR lookback period. Defaults to 14.
-
-    Returns:
-        ATR value rounded to 4 decimal places, or 0.0 if insufficient data.
-    """
-    if len(closes) < period + 1:
-        return 0.0
-
-    true_ranges = []
-    for i in range(1, len(closes)):
-        high_low   = highs[i] - lows[i]
-        high_prev  = abs(highs[i] - closes[i - 1])
-        low_prev   = abs(lows[i]  - closes[i - 1])
-        true_ranges.append(max(high_low, high_prev, low_prev))
-
-    atr = sum(true_ranges[-period:]) / period
-    return round(atr, 4)
 
 
 def find_levels(highs: list, lows: list, window: int = 60) -> dict:
@@ -399,24 +201,67 @@ def generate_analysis(ticker: str, period: str = "3mo") -> dict:
         )
         return None
 
-    closes  = [r["close"]  for r in rows if r["close"]  is not None]
-    highs   = [r["high"]   for r in rows if r["high"]   is not None]
-    lows    = [r["low"]    for r in rows if r["low"]    is not None]
-    volumes = [r["volume"] for r in rows if r["volume"] is not None]
-
-    if len(closes) < MIN_DATA_POINTS:
+    df_rows = [r for r in rows if r["close"] is not None]
+    if len(df_rows) < MIN_DATA_POINTS:
         return None
 
-    price = closes[-1]
+    df = pd.DataFrame(df_rows)[["close", "high", "low", "volume"]].astype(float)
+    closes  = df["close"].tolist()
+    highs   = df["high"].tolist()
+    lows    = df["low"].tolist()
+    volumes = df["volume"].tolist()
+    price   = closes[-1]
 
-    # ── Compute indicators ────────────────────────────
-    rsi       = compute_rsi(closes)
-    sma20     = compute_sma(closes, 20)
-    sma50     = compute_sma(closes, 50)
-    macd_data = compute_macd(closes)
-    boll_data = compute_bollinger(closes)
-    atr       = compute_atr(highs, lows, closes)
-    levels    = find_levels(highs, lows)
+    # ── Compute indicators via pandas-ta ──────────────
+    rsi_s   = ta.rsi(df["close"], length=14)
+    sma20_s = ta.sma(df["close"], length=20)
+    sma50_s = ta.sma(df["close"], length=50)
+    macd_df = ta.macd(df["close"], fast=12, slow=26, signal=9)
+    bb_df   = ta.bbands(df["close"], length=20, std=2)
+    atr_s   = ta.atr(df["high"], df["low"], df["close"], length=14)
+
+    def _safe(series, default, decimals=2):
+        """Return the last non-NaN value from a Series, or default."""
+        try:
+            v = series.iloc[-1]
+            return round(float(v), decimals) if pd.notna(v) else default
+        except Exception:
+            return default
+
+    rsi   = _safe(rsi_s,   50.0, 2)
+    sma20 = _safe(sma20_s, None, 2)
+    sma50 = _safe(sma50_s, None, 2)
+    atr   = _safe(atr_s,   0.0,  4)
+
+    if macd_df is not None and not macd_df.empty:
+        macd_val   = _safe(macd_df["MACD_12_26_9"],  0.0, 4)
+        signal_val = _safe(macd_df["MACDs_12_26_9"], 0.0, 4)
+        histogram  = _safe(macd_df["MACDh_12_26_9"], 0.0, 4)
+        macd_trend = "bullish" if histogram > 0 else ("bearish" if histogram < 0 else "neutral")
+    else:
+        macd_val = signal_val = histogram = 0.0
+        macd_trend = "neutral"
+    macd_data = {"macd": macd_val, "signal_line": signal_val, "histogram": histogram, "trend": macd_trend}
+
+    if bb_df is not None and not bb_df.empty:
+        bb_upper  = _safe(bb_df["BBU_20_2.0_2.0"], 0.0, 2)
+        bb_middle = _safe(bb_df["BBM_20_2.0_2.0"], 0.0, 2)
+        bb_lower  = _safe(bb_df["BBL_20_2.0_2.0"], 0.0, 2)
+        pct_b     = _safe(bb_df["BBP_20_2.0_2.0"], 0.5, 4)
+    else:
+        bb_upper = bb_middle = bb_lower = 0.0
+        pct_b = 0.5
+
+    if pct_b > 0.8:        bb_pos = "upper_extreme"
+    elif pct_b > 0.6:      bb_pos = "upper_third"
+    elif pct_b < 0.2:      bb_pos = "lower_extreme"
+    elif pct_b < 0.4:      bb_pos = "lower_third"
+    else:                  bb_pos = "middle"
+
+    boll_data = {"upper": bb_upper, "middle": bb_middle, "lower": bb_lower,
+                 "pct_b": pct_b, "position": bb_pos}
+
+    levels = find_levels(highs, lows)
     vol_vote, vol_trend = _volume_vote(volumes, closes)
 
     # ── Score each indicator (-1, 0, +1) ─────────────

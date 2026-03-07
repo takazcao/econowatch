@@ -10,6 +10,7 @@ Functions:
 """
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -97,6 +98,15 @@ def start_scheduler() -> None:
         "Scheduler started — prices every %d min, indicators every %d min",
         SCRAPE_INTERVAL_MINUTES,
         INDICATOR_INTERVAL_MINUTES,
+    )
+
+    # Fire an immediate price fetch so the dashboard has data on fresh installs
+    _scheduler.add_job(
+        _job_fetch_prices,
+        trigger="date",
+        run_date=datetime.now(),
+        id="fetch_prices_startup",
+        name="Initial price fetch on startup",
     )
 
 
