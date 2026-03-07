@@ -225,8 +225,13 @@ def get_ticker_fundamentals(ticker: str) -> dict | None:
 
     Returns:
         Dict with valuation, earnings, dividend, and company info fields.
-        Returns None on failure.
+        Returns None for crypto tickers or on failure.
     """
+    # Crypto tickers have no fundamental data on yfinance
+    if ticker.endswith("-USD") or ticker.endswith("=F"):
+        logger.debug("Skipping fundamentals for non-equity ticker %s", ticker)
+        return None
+
     try:
         t = yf.Ticker(ticker)
         info = t.info or {}
