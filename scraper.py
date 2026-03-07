@@ -187,28 +187,105 @@ def get_ticker_news(ticker: str, limit: int = 5) -> list:
     """
     try:
         news = yf.Ticker(ticker).news or []
-        return [
-            {
-                "title":        item.get("title", ""),
-                "publisher":    item.get("publisher", ""),
-                "link":         item.get("link", ""),
-                "published_at": item.get("providerPublishTime", 0),
-            }
-            for item in news[:limit]
-        ]
+        results = []
+        for item in news[:limit]:
+            # yfinance ≥0.2.50 wraps everything under item["content"]
+            content = item.get("content") or item
+            title     = content.get("title", "")
+            publisher = (content.get("provider") or {}).get("displayName", "") or content.get("publisher", "")
+            link      = (content.get("canonicalUrl") or {}).get("url", "") or content.get("link", "")
+            pub_date  = content.get("pubDate", "") or ""
+            # Convert ISO date string to unix timestamp if needed
+            published_at = content.get("providerPublishTime", 0)
+            if not published_at and pub_date:
+                try:
+                    from datetime import datetime, timezone
+                    published_at = int(datetime.fromisoformat(pub_date.replace("Z", "+00:00")).timestamp())
+                except Exception:
+                    published_at = 0
+            if title:
+                results.append({
+                    "title":        title,
+                    "publisher":    publisher,
+                    "link":         link,
+                    "published_at": published_at,
+                })
+        return results
     except Exception as e:
         logger.warning("Could not fetch news for %s: %s", ticker, e)
         return []
 
 
-def fetch_stock_prices(ticker: str, period: str = "1mo") -> bool:
+def get_ticker_fundamentals(ticker: str) -> dict | None:
+    """
+    Fetch fundamental data for a ticker from yfinance.
+
+    Args:
+        ticker: The stock ticker symbol (e.g. "AAPL").
+
+    Returns:
+        Dict with valuation, earnings, dividend, and company info fields.
+        Returns None on failure.
+    """
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info or {}
+
+        def _pct(val):
+            return round(val * 100, 2) if val is not None else None
+
+        def _fmt(val, decimals=2):
+            return round(float(val), decimals) if val is not None else None
+
+        # Earnings date from calendar
+        earnings_date = None
+        try:
+            cal = t.calendar or {}
+            ed = cal.get("Earnings Date")
+            if ed:
+                earnings_date = str(ed[0]) if isinstance(ed, list) else str(ed)
+        except Exception:
+            pass
+
+        return {
+            "ticker":              ticker,
+            "sector":              info.get("sector"),
+            "industry":            info.get("industry"),
+            "employees":           info.get("fullTimeEmployees"),
+            "market_cap":          info.get("marketCap"),
+            "enterprise_value":    info.get("enterpriseValue"),
+            "trailing_pe":         _fmt(info.get("trailingPE")),
+            "forward_pe":          _fmt(info.get("forwardPE")),
+            "price_to_book":       _fmt(info.get("priceToBook")),
+            "trailing_eps":        _fmt(info.get("trailingEps")),
+            "forward_eps":         _fmt(info.get("forwardEps")),
+            "earnings_growth":     _pct(info.get("earningsGrowth")),
+            "revenue_growth":      _pct(info.get("revenueGrowth")),
+            "profit_margin":       _pct(info.get("profitMargins")),
+            "operating_margin":    _pct(info.get("operatingMargins")),
+            "roe":                 _pct(info.get("returnOnEquity")),
+            "roa":                 _pct(info.get("returnOnAssets")),
+            "debt_to_equity":      _fmt(info.get("debtToEquity")),
+            "free_cashflow":       info.get("freeCashflow"),
+            "dividend_yield":      _pct(info.get("dividendYield") / 100 if info.get("dividendYield") else None),
+            "dividend_rate":       _fmt(info.get("dividendRate")),
+            "week_52_high":        _fmt(info.get("fiftyTwoWeekHigh")),
+            "week_52_low":         _fmt(info.get("fiftyTwoWeekLow")),
+            "next_earnings_date":  earnings_date,
+        }
+    except Exception as e:
+        logger.warning("Could not fetch fundamentals for %s: %s", ticker, e)
+        return None
+
+
+def fetch_stock_prices(ticker: str, period: str = "1y") -> bool:
     """
     Fetch OHLCV stock price history from yfinance and save to the database.
 
     Args:
         ticker: The stock ticker symbol (e.g. "AAPL").
         period: yfinance period string. One of: 5d, 1mo, 3mo, 6mo, 1y.
-                Defaults to "1mo".
+                Defaults to "1y".
 
     Returns:
         True if data was fetched and saved successfully, False on failure.
@@ -255,7 +332,7 @@ def fetch_watchlist_prices() -> None:
 
     for item in watchlist:
         ticker = item["ticker"]
-        ok = fetch_stock_prices(ticker, period="1mo")
+        ok = fetch_stock_prices(ticker, period="1y")
         if ok:
             success_count += 1
         else:

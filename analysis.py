@@ -10,9 +10,8 @@ Functions:
     generate_macro_analysis() -> dict: Macro regime + asset class recommendation
 """
 import logging
-import os
 from datetime import date
-from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import pandas_ta as ta
@@ -34,7 +33,6 @@ PERIOD_TO_DAYS = {
 }
 
 logger = logging.getLogger(__name__)
-
 
 
 def find_levels(highs: list, lows: list, window: int = 60) -> dict:
@@ -175,7 +173,7 @@ def _build_summary(
     return f"{sentence1} {sentence2} {sentence3} {sentence4}"
 
 
-def generate_analysis(ticker: str, period: str = "3mo") -> dict:
+def generate_analysis(ticker: str, period: str = "3mo") -> Optional[dict]:
     """
     Generate a full technical analysis for a ticker using data from the database.
 
@@ -244,10 +242,14 @@ def generate_analysis(ticker: str, period: str = "3mo") -> dict:
     macd_data = {"macd": macd_val, "signal_line": signal_val, "histogram": histogram, "trend": macd_trend}
 
     if bb_df is not None and not bb_df.empty:
-        bb_upper  = _safe(bb_df["BBU_20_2.0_2.0"], 0.0, 2)
-        bb_middle = _safe(bb_df["BBM_20_2.0_2.0"], 0.0, 2)
-        bb_lower  = _safe(bb_df["BBL_20_2.0_2.0"], 0.0, 2)
-        pct_b     = _safe(bb_df["BBP_20_2.0_2.0"], 0.5, 4)
+        _bbu = next((c for c in bb_df.columns if c.startswith("BBU_")), None)
+        _bbm = next((c for c in bb_df.columns if c.startswith("BBM_")), None)
+        _bbl = next((c for c in bb_df.columns if c.startswith("BBL_")), None)
+        _bbp = next((c for c in bb_df.columns if c.startswith("BBP_")), None)
+        bb_upper  = _safe(bb_df[_bbu], 0.0, 2) if _bbu else 0.0
+        bb_middle = _safe(bb_df[_bbm], 0.0, 2) if _bbm else 0.0
+        bb_lower  = _safe(bb_df[_bbl], 0.0, 2) if _bbl else 0.0
+        pct_b     = _safe(bb_df[_bbp], 0.5, 4) if _bbp else 0.5
     else:
         bb_upper = bb_middle = bb_lower = 0.0
         pct_b = 0.5
@@ -279,8 +281,8 @@ def generate_analysis(ticker: str, period: str = "3mo") -> dict:
     if sma20 is not None:
         price_vs_sma20_vote = 1 if price > sma20 else -1
 
-    macd_vote = 1 if macd_data["histogram"] > 0 else (-1 if macd_data["histogram"] < 0 else 0)
-    boll_vote = 1 if boll_data["pct_b"] < 0.3 else (-1 if boll_data["pct_b"] > 0.7 else 0)
+    macd_vote = 1 if float(macd_data["histogram"]) > 0 else (-1 if float(macd_data["histogram"]) < 0 else 0)
+    boll_vote = 1 if float(boll_data["pct_b"]) < 0.3 else (-1 if float(boll_data["pct_b"]) > 0.7 else 0)
 
     score     = rsi_vote + sma_vote + price_vs_sma20_vote + macd_vote + boll_vote + vol_vote
     max_score = 6
@@ -309,7 +311,7 @@ def generate_analysis(ticker: str, period: str = "3mo") -> dict:
     support      = levels["support"]
     atr_cushion  = 2 * atr if atr > 0 else price * 0.05
 
-    if signal in ("BUY", "HOLD"):
+    if signal in ("STRONG BUY", "BUY", "HOLD"):
         target_price = resistance
         stop_loss    = round(price - atr_cushion, 2)
     else:
@@ -739,6 +741,54 @@ def generate_macro_analysis() -> dict:
         "flow_verdict":         flow_verdict,
         "last_updated":         rows[0]["date"] if rows else None,
     }
+
+
+def check_and_generate_alerts() -> None:
+    """
+    Evaluate all tracked tickers and macro indicators for alert conditions.
+    Generates alerts for:
+      - RSI < 30 (Oversold)
+      - Bullish/Bearish SMA cross
+      - Macro regime shifts
+
+    Alerts are pushed to the database; uniqueness per day prevents spam.
+    """
+    logger.info("Starting alert condition evaluation...")
+
+    # 1. Macro Regime Alert
+    macro_data = generate_macro_analysis()
+    if macro_data:
+        regime = macro_data.get("regime", "")
+        # Very simple daily alert if we detect a recessionary or stagflationary regime
+        if regime in ("Recessionary", "Stagflationary"):
+            msg = f"Macro Warning: Environment has shifted to {regime}. Defensive positioning advised."
+            database.insert_alert("", "macro", msg)
+        elif regime == "Risk-On":
+            msg = "Macro Update: Environment is Risk-On. Favorable conditions for Equities and Crypto."
+            database.insert_alert("", "macro", msg)
+
+    # 2. Ticker Technical Alerts (RSI & SMA)
+    watch_rows = database.get_watchlist()
+    for w in watch_rows:
+        ticker = w["ticker"]
+        ta_result = generate_analysis(ticker, "3mo")
+        if not ta_result:
+            continue
+
+        rsi = ta_result["indicators"]["rsi"]["value"]
+        if rsi < 30:
+            msg = f"{ticker} RSI is {rsi:.1f} (Oversold). Potential exhaustion of selling pressure."
+            database.insert_alert(ticker, "rsi", msg)
+
+        sma_cross = ta_result["indicators"]["sma"]["cross"]
+        if sma_cross == "bullish":
+            msg = f"{ticker} formed a Bullish SMA Cross (SMA20 > SMA50). Positive momentum."
+            database.insert_alert(ticker, "sma", msg)
+        elif sma_cross == "bearish":
+            msg = f"{ticker} formed a Bearish SMA Cross (SMA20 < SMA50). Negative momentum."
+            database.insert_alert(ticker, "sma", msg)
+
+    logger.info("Finished alert evaluation.")
 
 
 if __name__ == "__main__":

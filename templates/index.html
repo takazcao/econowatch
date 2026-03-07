@@ -1,399 +1,863 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" data-bs-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EconoWatch — Finance & Economy Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
-</head>
-<body>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="{{ url_for('static', filename='css/styles.css') }}"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <!-- ── Navbar ─────────────────────────────────────── -->
+    <nav
+      class="navbar navbar-dark px-3 py-2"
+      style="background: #161b22; border-bottom: 1px solid #30363d"
+    >
+      <span class="navbar-brand mb-0 fw-bold fs-5">
+        <i class="bi bi-graph-up-arrow me-2" style="color: #58a6ff"></i>
+        <span class="brand-eco">Econo</span
+        ><span class="brand-watch">Watch</span>
+      </span>
+      <div class="d-flex align-items-center gap-3">
+        <!-- Notification Bell -->
+        <button
+          id="alerts-btn"
+          class="btn btn-sm position-relative p-1"
+          style="color: #c9d1d9; border: none; background: transparent"
+          title="View Alerts"
+        >
+          <i class="bi bi-bell" style="font-size: 1.1rem"></i>
+          <span
+            id="alerts-badge"
+            class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+            style="display: none; font-size: 1rem; padding: 0.25em 0.4em"
+          >
+            0
+          </span>
+        </button>
+        <span id="status-pill" class="status-pill"
+          ><i class="bi bi-circle-fill me-1" style="font-size: 1rem"></i
+          >connecting…</span
+        >
+        <span id="last-updated" class="text-muted" style="font-size: 1rem"
+          >—</span
+        >
+      </div>
+    </nav>
 
-<!-- ── Navbar ─────────────────────────────────────── -->
-<nav class="navbar navbar-dark px-3 py-2" style="background:#161b22; border-bottom:1px solid #30363d;">
-    <span class="navbar-brand mb-0 fw-bold fs-5">
-        <i class="bi bi-graph-up-arrow me-2" style="color:#58a6ff;"></i>
-        <span class="brand-eco">Econo</span><span class="brand-watch">Watch</span>
-    </span>
-    <div class="d-flex align-items-center gap-3">
-        <span id="status-pill" class="status-pill"><i class="bi bi-circle-fill me-1" style="font-size:0.5rem;"></i>connecting…</span>
-        <span id="last-updated" class="text-muted" style="font-size:0.75rem;">—</span>
-    </div>
-</nav>
-
-<!-- ── Main ───────────────────────────────────────── -->
-<div class="container-fluid px-3 py-3">
-
-    <!-- Search — always visible -->
-    <div class="row mb-3">
+    <!-- ── Main ───────────────────────────────────────── -->
+    <div class="container-fluid px-3 py-3">
+      <!-- Search — always visible -->
+      <div class="row mb-3">
         <div class="col-12 col-md-6 col-lg-4">
-            <div class="input-group position-relative">
-                <input id="search-input" type="text" class="form-control"
-                       placeholder="Search ticker (e.g. AAPL, BTC-USD, ^GSPC)"
-                       autocomplete="off" autocapitalize="characters" spellcheck="false">
-                <button id="search-btn" class="btn btn-primary" type="button">
-                    <i class="bi bi-search"></i>
-                </button>
-                <div id="autocomplete-list" style="display:none;"></div>
-            </div>
-            <div id="search-feedback" class="mt-1" style="min-height:18px;"></div>
+          <div class="input-group position-relative">
+            <input
+              id="search-input"
+              type="text"
+              class="form-control"
+              placeholder="Search ticker (e.g. AAPL, BTC-USD, ^GSPC)"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+            />
+            <button id="search-btn" class="btn btn-primary" type="button">
+              <i class="bi bi-search"></i>
+            </button>
+            <div id="autocomplete-list" style="display: none"></div>
+          </div>
+          <div id="search-feedback" class="mt-1" style="min-height: 18px"></div>
         </div>
-    </div>
+      </div>
 
-    <!-- Watchlist quick-pick — always visible -->
-    <div class="row mb-3">
+      <!-- Watchlist quick-pick — always visible -->
+      <div class="row mb-3">
         <div class="col-12">
-            <div class="card">
-                <div class="card-header d-flex align-items-center gap-2">
-                    <i class="bi bi-bookmark-star"></i> Tracked Tickers
-                    <span class="ms-auto text-muted" style="font-size:0.72rem;">Click any ticker to load its chart</span>
-                </div>
-                <div class="card-body py-2">
-                    <div class="mb-2" style="font-size:0.7rem;color:#484f58;text-transform:uppercase;letter-spacing:.05em;">Stocks</div>
-                    <div id="wl-stocks" class="d-flex flex-wrap gap-2 mb-3"></div>
-                    <div class="mb-2" style="font-size:0.7rem;color:#484f58;text-transform:uppercase;letter-spacing:.05em;">Indices & ETFs</div>
-                    <div id="wl-etfs" class="d-flex flex-wrap gap-2 mb-3"></div>
-                    <div class="mb-2" style="font-size:0.7rem;color:#484f58;text-transform:uppercase;letter-spacing:.05em;">Crypto</div>
-                    <div id="wl-crypto" class="d-flex flex-wrap gap-2"></div>
-                </div>
+          <div class="card">
+            <div class="card-header d-flex align-items-center gap-2">
+              <i class="bi bi-bookmark-star"></i> Tracked Tickers
+              <span class="ms-auto text-muted" style="font-size: 1rem"
+                >Click any ticker to load its chart</span
+              >
             </div>
+            <div class="card-body py-2">
+              <div id="wl-custom-container" style="display: none">
+                <div
+                  class="mb-2"
+                  style="
+                    font-size: 1rem;
+                    color: #58a6ff;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                  "
+                >
+                  My Watchlist
+                </div>
+                <div id="wl-custom" class="d-flex flex-wrap gap-2 mb-3"></div>
+              </div>
+              <div
+                class="mb-2"
+                style="
+                  font-size: 1rem;
+                  color: #484f58;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+                "
+              >
+                Stocks
+              </div>
+              <div id="wl-stocks" class="d-flex flex-wrap gap-2 mb-3"></div>
+              <div
+                class="mb-2"
+                style="
+                  font-size: 1rem;
+                  color: #484f58;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+                "
+              >
+                Indices & ETFs
+              </div>
+              <div id="wl-etfs" class="d-flex flex-wrap gap-2 mb-3"></div>
+              <div
+                class="mb-2"
+                style="
+                  font-size: 1rem;
+                  color: #484f58;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+                "
+              >
+                Crypto
+              </div>
+              <div id="wl-crypto" class="d-flex flex-wrap gap-2"></div>
+            </div>
+          </div>
         </div>
-    </div>
+      </div>
 
-    <!-- ── Tab Navigation ──────────────────────────── -->
-    <div class="dash-tabs" id="dash-tabs">
+      <!-- ── Tab Navigation ──────────────────────────── -->
+      <div class="dash-tabs" id="dash-tabs">
         <button class="dash-tab-btn active" data-tab="overview">
-            <i class="bi bi-graph-up me-1"></i> Overview
+          <i class="bi bi-graph-up me-1"></i> Overview
         </button>
         <button class="dash-tab-btn" data-tab="technical">
-            <i class="bi bi-cpu me-1"></i> Technical
+          <i class="bi bi-cpu me-1"></i> Technical
         </button>
         <button class="dash-tab-btn" data-tab="macro">
-            <i class="bi bi-globe2 me-1"></i> Macro
+          <i class="bi bi-globe2 me-1"></i> Macro
         </button>
         <button class="dash-tab-btn" data-tab="market">
-            <i class="bi bi-bar-chart-line me-1"></i> Market
+          <i class="bi bi-bar-chart-line me-1"></i> Market
         </button>
-    </div>
+        <button class="dash-tab-btn" data-tab="fundamentals">
+          <i class="bi bi-journal-text me-1"></i> Fundamentals
+        </button>
+      </div>
 
-    <!-- ══════════════════════════════════════════════ -->
-    <!-- Tab: Overview — Chart + Price + News           -->
-    <!-- ══════════════════════════════════════════════ -->
-    <div id="tab-overview">
-
+      <!-- ══════════════════════════════════════════════ -->
+      <!-- Tab: Overview — Chart + Price + News           -->
+      <!-- ══════════════════════════════════════════════ -->
+      <div id="tab-overview">
         <!-- Stock Chart Row -->
         <div class="row mb-3 g-3">
-            <div class="col-12 col-lg-8">
-                <div class="card h-100">
-                    <div class="card-header d-flex align-items-center justify-content-between">
-                        <span id="chart-title">Select a ticker to view chart</span>
-                        <div class="period-tabs d-flex gap-1" id="period-tabs">
-                            <button class="btn" data-period="1d">1D</button>
-                            <button class="btn" data-period="5d">5D</button>
-                            <button class="btn" data-period="1w">1W</button>
-                            <button class="btn active" data-period="1mo">1M</button>
-                            <button class="btn" data-period="3mo">3M</button>
-                            <button class="btn" data-period="6mo">6M</button>
-                            <button class="btn" data-period="1y">1Y</button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div id="chart-placeholder" class="text-center py-5 text-muted">
-                            <i class="bi bi-bar-chart-line" style="font-size:2.5rem;opacity:0.2;"></i>
-                            <p class="mt-2 mb-0" style="font-size:0.85rem;">Enter a ticker above to load chart</p>
-                        </div>
-                        <div id="chart-wrapper" style="display:none;">
-                            <div id="tv-chart"></div>
-                            <div id="chart-legend" class="chart-legend mt-1" style="display:none;"></div>
-                        </div>
-                        <div id="chart-error" class="error-msg mt-2" style="display:none;"></div>
-                    </div>
+          <div class="col-12 col-lg-8">
+            <div class="card h-100">
+              <div
+                class="card-header d-flex align-items-center justify-content-between"
+              >
+                <div class="d-flex align-items-center">
+                  <span id="chart-title">Select a ticker to view chart</span>
+                  <button
+                    id="btn-star-ticker"
+                    class="btn btn-sm ms-2"
+                    style="
+                      display: none;
+                      padding: 0 6px;
+                      border: none;
+                      color: #f6c343;
+                      background: transparent;
+                    "
+                    title="Add/Remove from My Watchlist"
+                  >
+                    <i class="bi bi-star" id="star-icon"></i>
+                  </button>
                 </div>
+                <div class="period-tabs d-flex gap-1" id="period-tabs">
+                  <button class="btn" data-period="1d">1D</button>
+                  <button class="btn" data-period="5d">5D</button>
+                  <button class="btn" data-period="1w">1W</button>
+                  <button class="btn active" data-period="1mo">1M</button>
+                  <button class="btn" data-period="3mo">3M</button>
+                  <button class="btn" data-period="6mo">6M</button>
+                  <button class="btn" data-period="1y">1Y</button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="chart-placeholder" class="text-center py-5 text-muted">
+                  <i
+                    class="bi bi-bar-chart-line"
+                    style="font-size: 2.5rem; opacity: 0.2"
+                  ></i>
+                  <p class="mt-2 mb-0" style="font-size: 1rem">
+                    Enter a ticker above to load chart
+                  </p>
+                </div>
+                <div id="chart-wrapper" style="display: none">
+                  <div id="tv-chart"></div>
+                  <div
+                    id="chart-legend"
+                    class="chart-legend mt-1"
+                    style="display: none"
+                  ></div>
+                </div>
+                <div
+                  id="chart-error"
+                  class="error-msg mt-2"
+                  style="display: none"
+                ></div>
+              </div>
             </div>
+          </div>
 
-            <!-- Price Summary -->
-            <div class="col-12 col-lg-4">
-                <div class="card h-100">
-                    <div class="card-header">Price Summary</div>
-                    <div class="card-body d-flex flex-column justify-content-center">
-                        <div id="price-placeholder" class="text-muted text-center py-4" style="font-size:0.85rem;">
-                            No ticker selected
-                        </div>
-                        <div id="price-summary" style="display:none;">
-                            <div class="mb-1 text-muted" style="font-size:0.8rem;" id="price-ticker-name">—</div>
-                            <div class="price-large mb-2" id="price-latest">—</div>
-                            <span class="change-badge change-flat" id="price-change">—</span>
-                            <hr style="border-color:#30363d;">
-                            <div class="d-flex justify-content-between text-muted" style="font-size:0.8rem;">
-                                <span>Period</span>
-                                <span id="price-period">—</span>
-                            </div>
-                            <div class="d-flex justify-content-between text-muted mt-1" style="font-size:0.8rem;">
-                                <span>Data points</span>
-                                <span id="price-points">—</span>
-                            </div>
-                        </div>
-                    </div>
+          <!-- Price Summary -->
+          <div class="col-12 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">Price Summary</div>
+              <div class="card-body d-flex flex-column justify-content-center">
+                <div
+                  id="price-placeholder"
+                  class="text-muted text-center py-4"
+                  style="font-size: 1rem"
+                >
+                  No ticker selected
                 </div>
+                <div id="price-summary" style="display: none">
+                  <div
+                    class="mb-1 text-muted"
+                    style="font-size: 1rem"
+                    id="price-ticker-name"
+                  >
+                    —
+                  </div>
+                  <div class="price-large mb-2" id="price-latest">—</div>
+                  <span class="change-badge change-flat" id="price-change"
+                    >—</span
+                  >
+                  <hr style="border-color: #30363d" />
+                  <div
+                    class="d-flex justify-content-between text-muted"
+                    style="font-size: 1rem"
+                  >
+                    <span>Period</span>
+                    <span id="price-period">—</span>
+                  </div>
+                  <div
+                    class="d-flex justify-content-between text-muted mt-1"
+                    style="font-size: 1rem"
+                  >
+                    <span>Data points</span>
+                    <span id="price-points">—</span>
+                  </div>
+                  <div class="mt-3">
+                    <a
+                      id="csv-download-btn"
+                      href="#"
+                      class="btn btn-sm w-100"
+                      style="background:#1c2128;border:1px solid #30363d;color:#8b949e;display:none;"
+                    >
+                      <i class="bi bi-download me-1"></i> Download CSV
+                    </a>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Compare Chart -->
+        <div class="row mb-3 g-3">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+                <i class="bi bi-arrow-left-right"></i> Compare Tickers
+                <div class="input-group ms-2" style="max-width:320px;">
+                  <input id="compare-input" type="text" class="form-control form-control-sm"
+                    placeholder="e.g. AAPL,MSFT,GOOGL" autocomplete="off" spellcheck="false"
+                    style="background:#1c2128;border:1px solid #30363d;color:#e6edf3;" />
+                  <button id="compare-btn" class="btn btn-sm btn-primary" type="button">Compare</button>
+                </div>
+                <span id="compare-loading" class="loading-spinner ms-1" style="display:none"></span>
+                <span id="compare-legend" class="ms-auto d-flex gap-3 flex-wrap"></span>
+              </div>
+              <div class="card-body">
+                <div id="compare-placeholder" class="text-center text-muted py-4" style="font-size:1rem;">
+                  Enter 2–3 comma-separated tickers above and click Compare
+                </div>
+                <div id="compare-chart" style="display:none;"></div>
+                <div id="compare-error" class="error-msg mt-2" style="display:none;"></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- News Feed -->
-        <div class="row mb-3 g-3" id="news-row" style="display:none;">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-newspaper"></i> Latest News
-                        <span id="news-ticker-label" class="ms-2 fw-bold" style="color:#58a6ff;"></span>
-                        <span id="news-loading" class="loading-spinner ms-2" style="display:none;"></span>
-                    </div>
-                    <div id="news-body" class="card-body p-0">
-                        <!-- filled by JS -->
-                    </div>
-                </div>
+        <div class="row mb-3 g-3" id="news-row" style="display: none">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-newspaper"></i> Latest News
+                <span
+                  id="news-ticker-label"
+                  class="ms-2 fw-bold"
+                  style="color: #58a6ff"
+                ></span>
+                <span
+                  id="news-loading"
+                  class="loading-spinner ms-2"
+                  style="display: none"
+                ></span>
+              </div>
+              <div id="news-body" class="card-body p-0">
+                <!-- filled by JS -->
+              </div>
             </div>
+          </div>
         </div>
+      </div>
+      <!-- /tab-overview -->
 
-    </div><!-- /tab-overview -->
-
-    <!-- ══════════════════════════════════════════════ -->
-    <!-- Tab: Technical — TA Panel                      -->
-    <!-- ══════════════════════════════════════════════ -->
-    <div id="tab-technical" style="display:none;">
-
+      <!-- ══════════════════════════════════════════════ -->
+      <!-- Tab: Technical — TA Panel                      -->
+      <!-- ══════════════════════════════════════════════ -->
+      <div id="tab-technical" style="display: none">
         <div class="row mb-3 g-3" id="analysis-row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex align-items-center">
-                        <i class="bi bi-cpu me-2"></i> Technical Analysis
-                        <span id="analysis-ticker-label" class="ms-2 fw-bold" style="color:#58a6ff;"></span>
-                        <span id="analysis-loading" class="loading-spinner ms-2" style="display:none;"></span>
-                        <span id="analysis-updated" class="ms-auto" style="font-size:0.7rem;"></span>
-                    </div>
-                    <div class="card-body" id="analysis-body">
-                        <div class="text-muted text-center py-5" id="analysis-placeholder">
-                            <i class="bi bi-cpu" style="font-size:2rem;opacity:0.2;"></i>
-                            <p class="mt-2 mb-0" style="font-size:0.85rem;">Select a ticker on the Overview tab to load analysis</p>
-                        </div>
-                    </div>
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center">
+                <i class="bi bi-cpu me-2"></i> Technical Analysis
+                <span
+                  id="analysis-ticker-label"
+                  class="ms-2 fw-bold"
+                  style="color: #58a6ff"
+                ></span>
+                <span
+                  id="analysis-loading"
+                  class="loading-spinner ms-2"
+                  style="display: none"
+                ></span>
+                <span
+                  id="analysis-updated"
+                  class="ms-auto"
+                  style="font-size: 1rem"
+                ></span>
+              </div>
+              <div class="card-body" id="analysis-body">
+                <div
+                  class="text-muted text-center py-5"
+                  id="analysis-placeholder"
+                >
+                  <i
+                    class="bi bi-cpu"
+                    style="font-size: 2rem; opacity: 0.2"
+                  ></i>
+                  <p class="mt-2 mb-0" style="font-size: 1rem">
+                    Select a ticker on the Overview tab to load analysis
+                  </p>
                 </div>
+              </div>
             </div>
+          </div>
         </div>
+      </div>
+      <!-- /tab-technical -->
 
-    </div><!-- /tab-technical -->
-
-    <!-- ══════════════════════════════════════════════ -->
-    <!-- Tab: Macro — Indicators + Macro Regime         -->
-    <!-- ══════════════════════════════════════════════ -->
-    <div id="tab-macro" style="display:none;">
-
+      <!-- ══════════════════════════════════════════════ -->
+      <!-- Tab: Macro — Indicators + Macro Regime         -->
+      <!-- ══════════════════════════════════════════════ -->
+      <div id="tab-macro" style="display: none">
         <!-- Economic Indicators -->
         <div class="row mb-3 g-3">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-activity"></i> Economic Indicators
-                        <span id="indicators-loading" class="loading-spinner ms-2" style="display:none;"></span>
-                    </div>
-                    <div class="card-body">
-                        <div id="indicators-grid" class="row g-2">
-                            <div class="col-12 text-muted text-center py-3" id="indicators-placeholder">
-                                <span class="loading-spinner me-2"></span> Loading indicators…
-                            </div>
-                        </div>
-                        <div id="indicators-error" class="error-msg mt-2" style="display:none;"></div>
-                    </div>
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-activity"></i> Economic Indicators
+                <span
+                  id="indicators-loading"
+                  class="loading-spinner ms-2"
+                  style="display: none"
+                ></span>
+              </div>
+              <div class="card-body">
+                <div id="indicators-grid" class="row g-2">
+                  <div
+                    class="col-12 text-muted text-center py-3"
+                    id="indicators-placeholder"
+                  >
+                    <span class="loading-spinner me-2"></span> Loading
+                    indicators…
+                  </div>
                 </div>
+                <div
+                  id="indicators-error"
+                  class="error-msg mt-2"
+                  style="display: none"
+                ></div>
+              </div>
             </div>
+          </div>
         </div>
 
         <!-- Macro Regime Analysis -->
         <div class="row mb-3 g-3">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-globe2"></i> Macro Regime Analysis
-                        <span id="macro-loading" class="loading-spinner ms-2" style="display:none;"></span>
-                        <span id="macro-regime-badge" class="badge ms-auto" style="display:none;"></span>
-                    </div>
-                    <div class="card-body">
-                        <div id="macro-recommendation" style="display:none;">
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-md-4">
-                                    <div class="p-3 rounded text-center" style="background:#0d1117; border:1px solid #30363d;">
-                                        <div class="text-muted mb-1" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Best Asset Class</div>
-                                        <div id="macro-best-asset" class="fw-bold" style="font-size:1.4rem;"></div>
-                                        <div id="macro-confidence" class="text-muted mt-1" style="font-size:0.8rem;"></div>
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-8">
-                                    <div class="p-3 rounded" style="background:#0d1117; border:1px solid #30363d;">
-                                        <div class="text-muted mb-3" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Bullish Score (1–10)</div>
-                                        <div id="macro-score-bars"></div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-md-5">
-                                    <div class="p-3 rounded text-center h-100" style="background:#0d1117; border:1px solid #30363d;">
-                                        <div class="text-muted mb-2" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Capital Flow Allocation</div>
-                                        <svg id="flow-donut" viewBox="0 0 120 120" width="160" height="160" style="display:block;margin:0 auto;"></svg>
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-7 d-flex align-items-stretch">
-                                    <div class="p-3 rounded w-100" style="background:#0d1117; border:1px solid #30363d;">
-                                        <div class="text-muted mb-2" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Smart Money Rotation</div>
-                                        <p id="flow-verdict" class="mb-3" style="font-size:0.88rem; line-height:1.7;"></p>
-                                        <div id="flow-pct-labels" class="d-flex gap-4 flex-wrap"></div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="p-3 rounded mb-3" style="background:#0d1117; border:1px solid #30363d;">
-                                <div class="text-muted mb-1" style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em;">Analysis Summary</div>
-                                <p id="macro-summary" class="mb-0" style="font-size:0.9rem; line-height:1.6;"></p>
-                            </div>
-                            <div id="macro-yield-warning" class="alert mb-3 py-2" style="display:none; background:#2d1a00; border:1px solid #8a4700; color:#ffa657; font-size:0.85rem;">
-                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                                <strong>Yield Curve Inverted</strong> — The 2-Year Treasury yield exceeds the 10-Year yield, a historically reliable recession indicator.
-                            </div>
-                            <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em; color:#8b949e;" class="mb-2">Indicator Breakdown</div>
-                            <div class="table-responsive">
-                                <table class="table table-dark table-sm mb-0" style="font-size:0.82rem;">
-                                    <thead>
-                                        <tr>
-                                            <th>Indicator</th>
-                                            <th class="text-end">Value</th>
-                                            <th class="text-center">Trend</th>
-                                            <th class="text-center">Stocks</th>
-                                            <th class="text-center">Gold</th>
-                                            <th class="text-center">Crypto</th>
-                                            <th class="d-none d-md-table-cell">Impact</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="macro-breakdown-body"></tbody>
-                                </table>
-                            </div>
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-globe2"></i> Macro Regime Analysis
+                <span
+                  id="macro-loading"
+                  class="loading-spinner ms-2"
+                  style="display: none"
+                ></span>
+                <span
+                  id="macro-regime-badge"
+                  class="badge ms-auto"
+                  style="display: none"
+                ></span>
+              </div>
+              <div class="card-body">
+                <div id="macro-recommendation" style="display: none">
+                  <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-4">
+                      <div
+                        class="p-3 rounded text-center"
+                        style="background: #0d1117; border: 1px solid #30363d"
+                      >
+                        <div
+                          class="text-muted mb-1"
+                          style="
+                            font-size: 1rem;
+                            text-transform: uppercase;
+                            letter-spacing: 0.05em;
+                          "
+                        >
+                          Best Asset Class
                         </div>
-                        <div id="macro-placeholder" class="text-muted text-center py-3">
-                            <span class="loading-spinner me-2"></span> Loading macro analysis…
-                        </div>
-                        <div id="macro-error" class="error-msg mt-2" style="display:none;"></div>
+                        <div
+                          id="macro-best-asset"
+                          class="fw-bold"
+                          style="font-size: 1.4rem"
+                        ></div>
+                        <div
+                          id="macro-confidence"
+                          class="text-muted mt-1"
+                          style="font-size: 1rem"
+                        ></div>
+                      </div>
                     </div>
+                    <div class="col-12 col-md-8">
+                      <div
+                        class="p-3 rounded"
+                        style="background: #0d1117; border: 1px solid #30363d"
+                      >
+                        <div
+                          class="text-muted mb-3"
+                          style="
+                            font-size: 1rem;
+                            text-transform: uppercase;
+                            letter-spacing: 0.05em;
+                          "
+                        >
+                          Bullish Score (1–10)
+                        </div>
+                        <div id="macro-score-bars"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-5">
+                      <div
+                        class="p-3 rounded text-center h-100"
+                        style="background: #0d1117; border: 1px solid #30363d"
+                      >
+                        <div
+                          class="text-muted mb-2"
+                          style="
+                            font-size: 1rem;
+                            text-transform: uppercase;
+                            letter-spacing: 0.05em;
+                          "
+                        >
+                          Capital Flow Allocation
+                        </div>
+                        <svg
+                          id="flow-donut"
+                          viewBox="0 0 120 120"
+                          width="160"
+                          height="160"
+                          style="display: block; margin: 0 auto"
+                        ></svg>
+                      </div>
+                    </div>
+                    <div class="col-12 col-md-7 d-flex align-items-stretch">
+                      <div
+                        class="p-3 rounded w-100"
+                        style="background: #0d1117; border: 1px solid #30363d"
+                      >
+                        <div
+                          class="text-muted mb-2"
+                          style="
+                            font-size: 1rem;
+                            text-transform: uppercase;
+                            letter-spacing: 0.05em;
+                          "
+                        >
+                          Smart Money Rotation
+                        </div>
+                        <p
+                          id="flow-verdict"
+                          class="mb-3"
+                          style="font-size: 1rem; line-height: 1.7"
+                        ></p>
+                        <div
+                          id="flow-pct-labels"
+                          class="d-flex gap-4 flex-wrap"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    class="p-3 rounded mb-3"
+                    style="background: #0d1117; border: 1px solid #30363d"
+                  >
+                    <div
+                      class="text-muted mb-1"
+                      style="
+                        font-size: 1rem;
+                        text-transform: uppercase;
+                        letter-spacing: 0.05em;
+                      "
+                    >
+                      Analysis Summary
+                    </div>
+                    <p
+                      id="macro-summary"
+                      class="mb-0"
+                      style="font-size: 1rem; line-height: 1.6"
+                    ></p>
+                  </div>
+                  <div
+                    id="macro-yield-warning"
+                    class="alert mb-3 py-2"
+                    style="
+                      display: none;
+                      background: #2d1a00;
+                      border: 1px solid #8a4700;
+                      color: #ffa657;
+                      font-size: 1rem;
+                    "
+                  >
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <strong>Yield Curve Inverted</strong> — The 2-Year Treasury
+                    yield exceeds the 10-Year yield, a historically reliable
+                    recession indicator.
+                  </div>
+                  <div
+                    style="
+                      font-size: 1rem;
+                      text-transform: uppercase;
+                      letter-spacing: 0.05em;
+                      color: #8b949e;
+                    "
+                    class="mb-2"
+                  >
+                    Indicator Breakdown
+                  </div>
+                  <div class="table-responsive">
+                    <table
+                      class="table table-dark table-sm mb-0"
+                      style="font-size: 1rem"
+                    >
+                      <thead>
+                        <tr>
+                          <th>Indicator</th>
+                          <th class="text-end">Value</th>
+                          <th class="text-center">Trend</th>
+                          <th class="text-center">Stocks</th>
+                          <th class="text-center">Gold</th>
+                          <th class="text-center">Crypto</th>
+                          <th class="d-none d-md-table-cell">Impact</th>
+                        </tr>
+                      </thead>
+                      <tbody id="macro-breakdown-body"></tbody>
+                    </table>
+                  </div>
                 </div>
+                <div id="macro-placeholder" class="text-muted text-center py-3">
+                  <span class="loading-spinner me-2"></span> Loading macro
+                  analysis…
+                </div>
+                <div
+                  id="macro-error"
+                  class="error-msg mt-2"
+                  style="display: none"
+                ></div>
+              </div>
             </div>
+          </div>
         </div>
+      </div>
+      <!-- /tab-macro -->
 
-    </div><!-- /tab-macro -->
-
-    <!-- ══════════════════════════════════════════════ -->
-    <!-- Tab: Market — Crypto Metrics + Movers          -->
-    <!-- ══════════════════════════════════════════════ -->
-    <div id="tab-market" style="display:none;">
-
+      <!-- ══════════════════════════════════════════════ -->
+      <!-- Tab: Market — Crypto Metrics + Movers          -->
+      <!-- ══════════════════════════════════════════════ -->
+      <div id="tab-market" style="display: none">
         <!-- Crypto Market Metrics -->
         <div class="row mb-3 g-3">
-            <div class="col-12 col-md-6">
-                <div class="card h-100">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-currency-bitcoin"></i> Bitcoin Dominance
-                        <span id="btc-dom-loading" class="loading-spinner ms-2" style="display:none;"></span>
-                        <span id="btc-dom-value" class="ms-auto fw-bold" style="font-size:1.1rem;"></span>
-                    </div>
-                    <div class="card-body">
-                        <div id="btc-dom-placeholder" class="text-center py-4 text-muted" style="font-size:0.82rem;">Loading…</div>
-                        <div id="btc-dom-chart" style="display:none; height:140px;"></div>
-                        <p id="btc-dom-note" class="text-muted mb-0 mt-2" style="font-size:0.75rem; display:none;">
-                            Rising dominance = capital rotating from Altcoins into Bitcoin (macro neutral).
-                        </p>
-                    </div>
+          <div class="col-12 col-md-6">
+            <div class="card h-100">
+              <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-currency-bitcoin"></i> Bitcoin Dominance
+                <span
+                  id="btc-dom-loading"
+                  class="loading-spinner ms-2"
+                  style="display: none"
+                ></span>
+                <span
+                  id="btc-dom-value"
+                  class="ms-auto fw-bold"
+                  style="font-size: 1.1rem"
+                ></span>
+              </div>
+              <div class="card-body">
+                <div
+                  id="btc-dom-placeholder"
+                  class="text-center py-4 text-muted"
+                  style="font-size: 1rem"
+                >
+                  Loading…
                 </div>
+                <div
+                  id="btc-dom-chart"
+                  style="display: none; height: 140px"
+                ></div>
+                <p
+                  id="btc-dom-note"
+                  class="text-muted mb-0 mt-2"
+                  style="font-size: 1rem; display: none"
+                >
+                  Rising dominance = capital rotating from Altcoins into Bitcoin
+                  (macro neutral).
+                </p>
+              </div>
             </div>
-            <div class="col-12 col-md-6">
-                <div class="card h-100">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-bank"></i> Stablecoin Market Cap
-                        <span id="stable-mcap-loading" class="loading-spinner ms-2" style="display:none;"></span>
-                        <span id="stable-mcap-value" class="ms-auto fw-bold" style="font-size:1.1rem;"></span>
-                    </div>
-                    <div class="card-body">
-                        <div id="stable-mcap-placeholder" class="text-center py-4 text-muted" style="font-size:0.82rem;">Loading…</div>
-                        <div id="stable-mcap-chart" style="display:none; height:140px;"></div>
-                        <p id="stable-mcap-note" class="text-muted mb-0 mt-2" style="font-size:0.75rem; display:none;">
-                            Expanding stablecoin supply = new liquidity entering the crypto ecosystem (Crypto bullish).
-                        </p>
-                    </div>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="card h-100">
+              <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-bank"></i> Stablecoin Market Cap
+                <span
+                  id="stable-mcap-loading"
+                  class="loading-spinner ms-2"
+                  style="display: none"
+                ></span>
+                <span
+                  id="stable-mcap-value"
+                  class="ms-auto fw-bold"
+                  style="font-size: 1.1rem"
+                ></span>
+              </div>
+              <div class="card-body">
+                <div
+                  id="stable-mcap-placeholder"
+                  class="text-center py-4 text-muted"
+                  style="font-size: 1rem"
+                >
+                  Loading…
                 </div>
+                <div
+                  id="stable-mcap-chart"
+                  style="display: none; height: 140px"
+                ></div>
+                <p
+                  id="stable-mcap-note"
+                  class="text-muted mb-0 mt-2"
+                  style="font-size: 1rem; display: none"
+                >
+                  Expanding stablecoin supply = new liquidity entering the
+                  crypto ecosystem (Crypto bullish).
+                </p>
+              </div>
             </div>
+          </div>
         </div>
 
         <!-- Movers Row -->
         <div class="row mb-3 g-3">
-            <div class="col-12 col-md-6">
-                <div class="card h-100">
-                    <div class="card-header">
-                        <i class="bi bi-arrow-up-right-circle-fill trend-up me-1"></i> Top Gainers
-                    </div>
-                    <div class="card-body p-0">
-                        <div id="gainers-loading" class="text-center py-3">
-                            <span class="loading-spinner"></span>
-                        </div>
-                        <table class="table table-dark movers-table mb-0" id="gainers-table" style="display:none;">
-                            <thead>
-                                <tr>
-                                    <th>Ticker</th>
-                                    <th>Name</th>
-                                    <th class="text-end">Close</th>
-                                    <th class="text-end">Change</th>
-                                </tr>
-                            </thead>
-                            <tbody id="gainers-body"></tbody>
-                        </table>
-                        <div id="gainers-error" class="error-msg p-3" style="display:none;"></div>
-                    </div>
+          <div class="col-12 col-md-6">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="bi bi-arrow-up-right-circle-fill trend-up me-1"></i>
+                Top Gainers
+              </div>
+              <div class="card-body p-0">
+                <div id="gainers-loading" class="text-center py-3">
+                  <span class="loading-spinner"></span>
                 </div>
+                <table
+                  class="table table-dark movers-table mb-0"
+                  id="gainers-table"
+                  style="display: none"
+                >
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Name</th>
+                      <th class="text-end">Close</th>
+                      <th class="text-end">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody id="gainers-body"></tbody>
+                </table>
+                <div
+                  id="gainers-error"
+                  class="error-msg p-3"
+                  style="display: none"
+                ></div>
+              </div>
             </div>
-            <div class="col-12 col-md-6">
-                <div class="card h-100">
-                    <div class="card-header">
-                        <i class="bi bi-arrow-down-right-circle-fill trend-down me-1"></i> Top Losers
-                    </div>
-                    <div class="card-body p-0">
-                        <div id="losers-loading" class="text-center py-3">
-                            <span class="loading-spinner"></span>
-                        </div>
-                        <table class="table table-dark movers-table mb-0" id="losers-table" style="display:none;">
-                            <thead>
-                                <tr>
-                                    <th>Ticker</th>
-                                    <th>Name</th>
-                                    <th class="text-end">Close</th>
-                                    <th class="text-end">Change</th>
-                                </tr>
-                            </thead>
-                            <tbody id="losers-body"></tbody>
-                        </table>
-                        <div id="losers-error" class="error-msg p-3" style="display:none;"></div>
-                    </div>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="card h-100">
+              <div class="card-header">
+                <i
+                  class="bi bi-arrow-down-right-circle-fill trend-down me-1"
+                ></i>
+                Top Losers
+              </div>
+              <div class="card-body p-0">
+                <div id="losers-loading" class="text-center py-3">
+                  <span class="loading-spinner"></span>
                 </div>
+                <table
+                  class="table table-dark movers-table mb-0"
+                  id="losers-table"
+                  style="display: none"
+                >
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Name</th>
+                      <th class="text-end">Close</th>
+                      <th class="text-end">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody id="losers-body"></tbody>
+                </table>
+                <div
+                  id="losers-error"
+                  class="error-msg p-3"
+                  style="display: none"
+                ></div>
+              </div>
             </div>
+          </div>
         </div>
+      </div>
+      <!-- /tab-market -->
 
-    </div><!-- /tab-market -->
+      <!-- ══════════════════════════════════════════════ -->
+      <!-- Tab: Fundamentals — Valuation + Financials     -->
+      <!-- ══════════════════════════════════════════════ -->
+      <div id="tab-fundamentals" style="display: none">
+        <div class="row mb-3 g-3" id="fundamentals-row" style="display: none">
+          <!-- Company Info + 52-Week Range -->
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-journal-text"></i> Fundamentals
+                <span id="fundamentals-ticker-label" class="ms-2 fw-bold" style="color: #58a6ff"></span>
+                <span id="fundamentals-loading" class="loading-spinner ms-2" style="display: none"></span>
+              </div>
+              <div class="card-body" id="fundamentals-body">
+                <!-- filled by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="fundamentals-placeholder" class="text-muted text-center py-5">
+          <i class="bi bi-journal-text" style="font-size: 2rem; opacity: 0.2"></i>
+          <p class="mt-2 mb-0" style="font-size: 1rem">
+            Select a ticker on the Overview tab to load fundamentals
+          </p>
+        </div>
+        <div id="fundamentals-error" class="error-msg mt-2" style="display: none"></div>
+      </div>
+      <!-- /tab-fundamentals -->
+    </div>
+    <!-- /container -->
 
-</div><!-- /container -->
+    <!-- ── Footer ─────────────────────────────────────── -->
+    <footer class="py-2 px-3 text-center">
+      EconoWatch &nbsp;·&nbsp; Auto-refreshes in
+      <span id="refresh-countdown">—</span>s &nbsp;·&nbsp; Data via yfinance /
+      FRED
+    </footer>
 
-<!-- ── Footer ─────────────────────────────────────── -->
-<footer class="py-2 px-3 text-center">
-    EconoWatch &nbsp;·&nbsp; Auto-refreshes in <span id="refresh-countdown">—</span>s
-    &nbsp;·&nbsp; Data via yfinance / FRED
-</footer>
+    <!-- ── Alerts Modal ─────────────────────────────────── -->
+    <div
+      class="modal fade"
+      id="alertsModal"
+      tabindex="-1"
+      aria-hidden="true"
+      data-bs-theme="dark"
+    >
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div
+          class="modal-content"
+          style="background: #161b22; border: 1px solid #30363d; color: #c9d1d9"
+        >
+          <div class="modal-header" style="border-bottom: 1px solid #30363d">
+            <h5 class="modal-title fs-6 fw-bold">
+              <i class="bi bi-bell-fill me-2" style="color: #f6c343"></i> Price
+              & Macro Alerts
+            </h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              aria-label="Close"
+            ></button>
+          </div>
+          <div class="modal-body p-0" id="alerts-modal-body">
+            <div class="text-center text-muted py-5" style="font-size: 1rem">
+              <i
+                class="bi bi-check2-circle mb-2 d-block"
+                style="font-size: 2rem; opacity: 0.3"
+              ></i>
+              No new alerts right now.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-<!-- ── Scripts ────────────────────────────────────── -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
-<script>/* All dashboard logic lives in static/js/main.js */
-</script>
-</body>
+    <!-- ── Scripts ────────────────────────────────────── -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+      /* All dashboard logic lives in static/js/main.js */
+    </script>
+  </body>
 </html>

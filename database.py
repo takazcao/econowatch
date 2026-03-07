@@ -14,6 +14,9 @@ Functions:
     get_top_movers(limit) -> dict: Return top gainers and losers from watchlist
     get_watchlist() -> list[dict]: Return all tickers in watchlist
     add_to_watchlist(ticker, name) -> bool: Insert a ticker into watchlist
+    insert_alert(ticker, alert_type, message) -> bool: Save a new alert
+    get_unread_alerts() -> list[dict]: Fetch all unread alerts
+    mark_alerts_read() -> bool: Mark all alerts as read
 """
 import logging
 import os
@@ -90,6 +93,19 @@ def init_db() -> None:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker     TEXT DEFAULT '',
+                alert_type TEXT NOT NULL,
+                message    TEXT NOT NULL,
+                is_read    INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                alert_date TEXT DEFAULT CURRENT_DATE,
+                UNIQUE(ticker, alert_type, alert_date)
+            )
+        """)
+
         conn.commit()
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -118,11 +134,11 @@ def insert_stock_prices(ticker: str, df) -> bool:
                     (
                         ticker,
                         str(row["date"]),
-                        round(float(row["open"]), 4) if row["open"] else None,
-                        round(float(row["high"]), 4) if row["high"] else None,
-                        round(float(row["low"]), 4) if row["low"] else None,
-                        round(float(row["close"]), 4) if row["close"] else None,
-                        int(row["volume"]) if row["volume"] else None,
+                        round(float(row["open"]), 4) if row["open"] is not None else None,
+                        round(float(row["high"]), 4) if row["high"] is not None else None,
+                        round(float(row["low"]),  4) if row["low"]  is not None else None,
+                        round(float(row["close"]),4) if row["close"] is not None else None,
+                        int(float(row["volume"])) if row["volume"] is not None else None,
                     ),
                 )
                 rows_inserted += cursor.rowcount
@@ -325,10 +341,9 @@ def get_top_movers(limit: int = 5) -> dict:
                 })
 
         movers.sort(key=lambda x: x["change_pct"], reverse=True)
-        return {
-            "gainers": movers[:limit],
-            "losers": movers[-limit:][::-1],
-        }
+        gainers: list = list(movers[:limit])
+        losers: list  = list(reversed(movers[-limit:]))
+        return {"gainers": gainers, "losers": losers}
     except Exception as e:
         logger.error("Failed to get top movers: %s", e)
         return {"gainers": [], "losers": []}
@@ -376,6 +391,76 @@ def add_to_watchlist(ticker: str, name: str) -> bool:
         return True
     except Exception as e:
         logger.error("Failed to add %s to watchlist: %s", ticker, e)
+        return False
+
+
+def insert_alert(ticker: str, alert_type: str, message: str) -> bool:
+    """
+    Save a new alert to the database. Fails silently if a duplicate exists for today.
+
+    Args:
+        ticker: The stock ticker symbol (can be empty string for macro).
+        alert_type: "rsi", "sma", or "macro".
+        message: The alert text body.
+
+    Returns:
+        True if inserted, False if duplicate or error.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO alerts (ticker, alert_type, message)
+                VALUES (?, ?, ?)
+                """,
+                (ticker, alert_type, message),
+            )
+            inserted = cursor.rowcount > 0
+            conn.commit()
+            if inserted:
+                logger.info("Created %s alert for %s", alert_type, ticker or "MACRO")
+        return inserted
+    except Exception as e:
+        logger.error("Failed to insert alert: %s", e)
+        return False
+
+
+def get_unread_alerts() -> list:
+    """
+    Fetch all unread alerts ordered by most recent first.
+
+    Returns:
+        List of dicts with keys: id, ticker, alert_type, message, created_at.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, ticker, alert_type, message, created_at
+                FROM alerts
+                WHERE is_read = 0
+                ORDER BY created_at DESC
+                """
+            )
+            rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error("Failed to fetch unread alerts: %s", e)
+        return []
+
+
+def mark_alerts_read() -> bool:
+    """Mark all unread alerts as read."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE alerts SET is_read = 1 WHERE is_read = 0")
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("Failed to mark alerts as read: %s", e)
         return False
 
 

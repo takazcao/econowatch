@@ -17,6 +17,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from dotenv import load_dotenv
 
+import analysis
 import scraper
 
 # ── Constants ────────────────────────────────────────
@@ -37,6 +38,9 @@ def _job_fetch_prices() -> None:
     """Scheduled job: fetch latest prices for all watchlist tickers."""
     logger.info("Scheduler: running fetch_watchlist_prices()")
     scraper.fetch_watchlist_prices()
+    
+    logger.info("Scheduler: triggering alert generation")
+    analysis.check_and_generate_alerts()
 
 
 def _job_fetch_indicators() -> None:
