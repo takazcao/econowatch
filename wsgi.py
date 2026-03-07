@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 import database
 import scheduler
+import scraper
 from app import app
 
 load_dotenv()
@@ -32,6 +33,7 @@ logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 database.init_db()
+scraper.seed_watchlist()
 scheduler.start_scheduler()
 atexit.register(scheduler.stop_scheduler)
 
