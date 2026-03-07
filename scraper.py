@@ -6,11 +6,17 @@ and CoinMarketCap API, then saves them to the SQLite database via database.py.
 
 Functions:
     validate_ticker(ticker) -> bool: Check if a ticker exists on yfinance
+    get_ticker_name(ticker) -> str: Return human-readable name for a ticker from yfinance
+    get_ticker_news(ticker, limit) -> list[dict]: Fetch latest news headlines for a ticker
     fetch_stock_prices(ticker, period) -> bool: Fetch OHLCV data and save to DB
     fetch_watchlist_prices() -> None: Fetch prices for all watchlist tickers
     fetch_fred_series(series_id, name, unit) -> bool: Fetch one FRED series and save to DB
     fetch_all_indicators() -> None: Fetch all FRED + CMC indicators
     fetch_cmc_metrics() -> bool: Fetch BTC dominance + stablecoin market cap from CMC
+
+Private helpers (internal retry wrappers):
+    _yfinance_history(ticker, period) -> pd.DataFrame: yfinance call with exponential backoff
+    _fred_get(params) -> dict: FRED API call with exponential backoff
 """
 import logging
 import os
@@ -21,6 +27,7 @@ from pathlib import Path
 import requests
 import yfinance as yf
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
 import database
 
@@ -99,6 +106,22 @@ CACHE_TTL_SECONDS = 3600  # 1 hour
 logger = logging.getLogger(__name__)
 
 
+# ── Retry Helpers ─────────────────────────────────────
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+def _yfinance_history(ticker: str, period: str):
+    """Fetch yfinance price history with automatic exponential-backoff retry (max 3 attempts)."""
+    return yf.Ticker(ticker).history(period=period)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+def _fred_get(params: dict) -> dict:
+    """Call FRED API with automatic exponential-backoff retry (max 3 attempts)."""
+    response = requests.get(FRED_BASE_URL, params=params, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
 def validate_ticker(ticker: str) -> bool:
     """
     Check whether a ticker symbol exists on yfinance.
@@ -114,7 +137,7 @@ def validate_ticker(ticker: str) -> bool:
     now = datetime.now()
     if ticker in _ticker_cache:
         is_valid, cached_at = _ticker_cache[ticker]
-        if (now - cached_at).seconds < CACHE_TTL_SECONDS:
+        if (now - cached_at).total_seconds() < CACHE_TTL_SECONDS:
             return is_valid
 
     try:
@@ -127,6 +150,55 @@ def validate_ticker(ticker: str) -> bool:
         logger.error("Error validating ticker %s: %s", ticker, e)
         _ticker_cache[ticker] = (False, now)
         return False
+
+
+def get_ticker_name(ticker: str) -> str:
+    """
+    Return the human-readable name for a ticker from yfinance.
+
+    Uses the shortName field from yfinance .info, falling back to longName,
+    then the raw ticker symbol if neither is available.
+
+    Args:
+        ticker: The stock ticker symbol (e.g. "AAPL").
+
+    Returns:
+        Human-readable company or index name, or the ticker symbol on failure.
+    """
+    try:
+        info = yf.Ticker(ticker).info
+        return info.get("shortName") or info.get("longName") or ticker
+    except Exception as e:
+        logger.warning("Could not retrieve name for %s: %s", ticker, e)
+        return ticker
+
+
+def get_ticker_news(ticker: str, limit: int = 5) -> list:
+    """
+    Fetch the latest news headlines for a ticker from yfinance.
+
+    Args:
+        ticker: The stock ticker symbol (e.g. "AAPL").
+        limit: Maximum number of articles to return. Defaults to 5.
+
+    Returns:
+        List of dicts with keys: title, publisher, link, published_at (unix timestamp).
+        Returns empty list on failure or when no news is available.
+    """
+    try:
+        news = yf.Ticker(ticker).news or []
+        return [
+            {
+                "title":        item.get("title", ""),
+                "publisher":    item.get("publisher", ""),
+                "link":         item.get("link", ""),
+                "published_at": item.get("providerPublishTime", 0),
+            }
+            for item in news[:limit]
+        ]
+    except Exception as e:
+        logger.warning("Could not fetch news for %s: %s", ticker, e)
+        return []
 
 
 def fetch_stock_prices(ticker: str, period: str = "1mo") -> bool:
@@ -142,8 +214,7 @@ def fetch_stock_prices(ticker: str, period: str = "1mo") -> bool:
         True if data was fetched and saved successfully, False on failure.
     """
     try:
-        t = yf.Ticker(ticker)
-        df = t.history(period=period)
+        df = _yfinance_history(ticker, period)
 
         if df.empty:
             logger.warning("No data returned from yfinance for %s (period=%s)", ticker, period)
@@ -160,6 +231,9 @@ def fetch_stock_prices(ticker: str, period: str = "1mo") -> bool:
             logger.info("Fetched %d rows for %s (%s)", len(df), ticker, period)
         return success
 
+    except RetryError:
+        logger.error("Max retries reached for %s — yfinance unavailable", ticker)
+        return False
     except Exception as e:
         logger.error("Unexpected error fetching %s: %s", ticker, e)
         return False
@@ -222,9 +296,7 @@ def fetch_fred_series(series_id: str, name: str, unit: str) -> bool:
             "sort_order": "desc",
             "limit":      12,
         }
-        response = requests.get(FRED_BASE_URL, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        data = _fred_get(params)
 
         observations = data.get("observations", [])
         valid_obs = [o for o in observations if o.get("value") != "."]
@@ -248,6 +320,9 @@ def fetch_fred_series(series_id: str, name: str, unit: str) -> bool:
         logger.info("Saved %d observations for %s (%s)", saved, name, series_id)
         return True
 
+    except RetryError:
+        logger.error("Max retries reached for FRED series %s — API unavailable", series_id)
+        return False
     except requests.HTTPError as e:
         logger.error("HTTP error fetching FRED series %s: %s", series_id, e)
         return False

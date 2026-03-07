@@ -13,6 +13,7 @@ Functions:
     get_analysis(ticker) -> Response: Return technical analysis as JSON
     get_macro() -> Response: Return macro regime analysis as JSON
     get_indicator_history(series_id) -> Response: Return historical values for one indicator as JSON
+    get_news(ticker) -> Response: Return latest news headlines for a ticker as JSON
 """
 import atexit
 import logging
@@ -31,8 +32,14 @@ import scraper
 # ── Constants ────────────────────────────────────────
 load_dotenv()
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev_secret")
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
+if not FLASK_SECRET_KEY:
+    if FLASK_DEBUG:
+        FLASK_SECRET_KEY = "dev_secret_do_not_use_in_production"
+        logging.warning("FLASK_SECRET_KEY not set — using insecure dev default")
+    else:
+        raise RuntimeError("FLASK_SECRET_KEY must be set when FLASK_DEBUG=False")
 STALE_THRESHOLD_MINUTES = 15
 
 VALID_PERIODS = {"1d", "5d", "1w", "1mo", "3mo", "6mo", "1y"}
@@ -148,6 +155,9 @@ def get_stock(ticker: str):
 
     labels  = [r["date"] for r in rows]
     prices  = [round(r["close"], 2) if r["close"] else None for r in rows]
+    opens   = [round(r["open"],  2) if r["open"]  else None for r in rows]
+    highs   = [round(r["high"],  2) if r["high"]  else None for r in rows]
+    lows    = [round(r["low"],   2) if r["low"]   else None for r in rows]
     volumes = [int(r["volume"]) if r["volume"] else 0 for r in rows]
 
     latest_close = prices[-1] if prices else None
@@ -161,6 +171,9 @@ def get_stock(ticker: str):
         "ticker":       ticker,
         "labels":       labels,
         "prices":       prices,
+        "opens":        opens,
+        "highs":        highs,
+        "lows":         lows,
         "volumes":      volumes,
         "latest_close": latest_close,
         "change_pct":   change_pct,
@@ -243,14 +256,7 @@ def search_ticker():
         return jsonify({"valid": False, "ticker": query, "name": None,
                         "error": "Ticker not found"}), 200
 
-    # Try to get the company name from yfinance
-    name = query
-    try:
-        import yfinance as yf
-        info = yf.Ticker(query).info
-        name = info.get("shortName") or info.get("longName") or query
-    except Exception:
-        pass
+    name = scraper.get_ticker_name(query)
 
     return jsonify({"valid": True, "ticker": query, "name": name, "error": None}), 200
 
@@ -309,6 +315,18 @@ def get_indicator_history(series_id: str):
         "values":    [round(r["value"], 4) for r in rows],
         "unit":      rows[-1]["unit"],
     }), 200
+
+
+@app.route("/api/news/<string:ticker>")
+def get_news(ticker: str):
+    """Route: GET /api/news/<ticker> — Return latest news headlines for a ticker."""
+    ticker = ticker.upper()
+
+    if not _is_valid_ticker_format(ticker):
+        return jsonify({"error": "Invalid ticker format"}), 400
+
+    articles = scraper.get_ticker_news(ticker)
+    return jsonify({"ticker": ticker, "articles": articles}), 200
 
 
 @app.route("/api/macro")

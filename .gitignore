@@ -46,3 +46,12 @@ CLAUDE.md
 
 # Claude Code skills and config (local dev tools — do not push)
 .claude/
+
+# Feedback / review notes (local only)
+feedback/
+
+# Test cache
+.pytest_cache/
+
+# Playwright MCP browser cache
+.playwright-mcp/

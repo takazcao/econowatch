@@ -283,6 +283,8 @@ def get_top_movers(limit: int = 5) -> dict:
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM watchlist")
+            wl_count = cursor.fetchone()[0]
             cursor.execute(
                 """
                 SELECT w.ticker, w.name,
@@ -302,6 +304,12 @@ def get_top_movers(limit: int = 5) -> dict:
                 """
             )
             rows = cursor.fetchall()
+
+        if wl_count > 0 and len(rows) < wl_count:
+            logger.warning(
+                "get_top_movers: %d of %d watchlist tickers lack sufficient price history",
+                wl_count - len(rows), wl_count,
+            )
 
         movers = []
         for row in rows:
