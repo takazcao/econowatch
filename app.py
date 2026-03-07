@@ -14,6 +14,10 @@ Functions:
     get_macro() -> Response: Return macro regime analysis as JSON
     get_indicator_history(series_id) -> Response: Return historical values for one indicator as JSON
     get_news(ticker) -> Response: Return latest news headlines for a ticker as JSON
+    get_alerts() -> Response: Return unread alerts as JSON
+    mark_alerts_read() -> Response: Mark all unread alerts as read
+    export_csv(ticker) -> Response: Export price history as CSV file download
+    get_fundamentals(ticker) -> Response: Return fundamental data for a ticker as JSON
 """
 import atexit
 import logging
@@ -22,7 +26,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+import csv
+import io
+from flask import Flask, Response, jsonify, render_template, request
 
 import analysis
 import database
@@ -329,12 +335,124 @@ def get_news(ticker: str):
     return jsonify({"ticker": ticker, "articles": articles}), 200
 
 
+@app.route("/api/fundamentals/<string:ticker>")
+def get_fundamentals(ticker: str):
+    """Route: GET /api/fundamentals/<ticker> — Return fundamental data for a ticker."""
+    ticker = ticker.upper()
+
+    if not _is_valid_ticker_format(ticker):
+        return jsonify({"error": "Invalid ticker format"}), 400
+
+    data = scraper.get_ticker_fundamentals(ticker)
+    if not data:
+        return jsonify({"error": f"Could not fetch fundamentals for {ticker}"}), 404
+
+    return jsonify(data), 200
+
+
 @app.route("/api/macro")
 def get_macro():
     """Route: GET /api/macro — Return macro regime analysis and asset class recommendation."""
     result = analysis.generate_macro_analysis()
     if not result:
         return jsonify({"error": "No indicator data available for macro analysis"}), 404
+    return jsonify(result), 200
+
+
+@app.route("/api/alerts", methods=["GET"])
+def get_alerts():
+    """Route: GET /api/alerts — Return unread alerts."""
+    alerts = database.get_unread_alerts()
+    return jsonify({"alerts": alerts}), 200
+
+
+@app.route("/api/alerts/read", methods=["POST"])
+def mark_alerts_read():
+    """Route: POST /api/alerts/read — Mark all alerts as read."""
+    success = database.mark_alerts_read()
+    if success:
+        return jsonify({"success": True}), 200
+    return jsonify({"error": "Failed to mark alerts as read"}), 500
+
+
+@app.route("/api/export/<string:ticker>")
+def export_csv(ticker: str):
+    """Route: GET /api/export/<ticker>?period=1y — Download price history as CSV."""
+    ticker = ticker.upper()
+
+    if not _is_valid_ticker_format(ticker):
+        return jsonify({"error": "Invalid ticker format"}), 400
+
+    period = request.args.get("period", "1y").lower()
+    days = PERIOD_TO_DAYS.get(period, 365)
+    rows = database.get_stock_history(ticker, days)
+
+    if not rows:
+        return jsonify({"error": f"No data found for {ticker}"}), 404
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["date", "open", "high", "low", "close", "volume"])
+    writer.writeheader()
+    for r in rows:
+        writer.writerow({
+            "date":   r["date"],
+            "open":   r["open"],
+            "high":   r["high"],
+            "low":    r["low"],
+            "close":  r["close"],
+            "volume": r["volume"],
+        })
+
+    filename = f"{ticker}_{period}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.route("/api/compare")
+def get_compare():
+    """Route: GET /api/compare?tickers=AAPL,MSFT&period=1mo — Normalized % change for multiple tickers."""
+    raw = request.args.get("tickers", "")
+    period = request.args.get("period", "1mo").lower()
+    if period not in VALID_PERIODS:
+        period = "1mo"
+
+    tickers = [t.strip().upper() for t in raw.split(",") if t.strip()][:3]
+    if len(tickers) < 2:
+        return jsonify({"error": "Provide at least 2 tickers (e.g. ?tickers=AAPL,MSFT)"}), 400
+
+    for t in tickers:
+        if not _is_valid_ticker_format(t):
+            return jsonify({"error": f"Invalid ticker format: {t}"}), 400
+
+    days = PERIOD_TO_DAYS[period]
+    series = {}
+    all_dates = None
+
+    for ticker in tickers:
+        if _is_stale(ticker):
+            scraper.fetch_stock_prices(ticker, PERIOD_TO_YFINANCE.get(period, period))
+        rows = database.get_stock_history(ticker, days)
+        if rows:
+            date_price = {r["date"]: r["close"] for r in rows if r["close"]}
+            series[ticker] = date_price
+            dates = set(date_price.keys())
+            all_dates = dates if all_dates is None else all_dates & dates
+
+    if not all_dates or len(series) < 2:
+        return jsonify({"error": "Not enough overlapping data"}), 404
+
+    labels = sorted(all_dates)
+    result = {"labels": labels, "series": {}}
+
+    for ticker, date_price in series.items():
+        prices = [date_price[d] for d in labels]
+        base = prices[0]
+        pct_changes = [round((p - base) / base * 100, 2) if base else 0 for p in prices]
+        result["series"][ticker] = pct_changes
+
     return jsonify(result), 200
 
 
@@ -376,4 +494,4 @@ if __name__ == "__main__":
     database.init_db()
     scheduler.start_scheduler()
     atexit.register(scheduler.stop_scheduler)
-    app.run(debug=FLASK_DEBUG, port=5000)
+    app.run(debug=FLASK_DEBUG, host="0.0.0.0", port=5000)
