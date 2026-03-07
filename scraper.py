@@ -488,7 +488,7 @@ def fetch_all_indicators() -> None:
     )
 
 
-def _seed_watchlist() -> None:
+def seed_watchlist() -> None:
     """Seed the watchlist with default tickers if it is empty."""
     existing = database.get_watchlist()
     if existing:
@@ -509,7 +509,7 @@ if __name__ == "__main__":
     database.init_db()
 
     # 2. Seed watchlist with defaults
-    _seed_watchlist()
+    seed_watchlist()
 
     # 3. Fetch stock prices for all watchlist tickers
     logger.info("--- Fetching stock prices ---")
