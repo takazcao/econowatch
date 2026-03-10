@@ -4,6 +4,12 @@
 
 ---
 
+## Demo
+
+[![EconoWatch Demo](https://img.youtube.com/vi/3EMv7s4qFuo/0.jpg)](https://youtu.be/3EMv7s4qFuo)
+
+---
+
 ## What Is EconoWatch?
 
 EconoWatch is a professional-grade financial dashboard that aggregates stock market data, macroeconomic indicators, technical analysis signals, and crypto market intelligence — all in a single web application that runs on your own server with zero per-user data costs.
