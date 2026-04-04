@@ -23,6 +23,8 @@ const REFRESH_INTERVAL_SEC = 300; // 5 minutes
 const LS_LAST_TICKER = "ew_last_ticker"; // localStorage key
 const LS_ACTIVE_TAB = "ew_active_tab"; // localStorage key
 const LS_CUSTOM_WL = "ew_custom_watchlist"; // localStorage key
+const LS_PORTFOLIO = "ew_portfolio_positions"; // localStorage key
+const PORTFOLIO_COLORS = ["#58a6ff","#3fb950","#ffa657","#f85149","#bc8cff","#f6c343","#26a17b","#e3b341","#79c0ff","#56d364"];
 
 // ── State ─────────────────────────────────────────────
 let currentTicker = null;
@@ -1540,8 +1542,374 @@ function refreshAll() {
   if (currentTicker) loadChart(currentTicker, currentPeriod);
 }
 
+// ── Screener ──────────────────────────────────────────
+let screenerTable = null;
+let screenerLoaded = false;
+let screenerEs = null; // active EventSource
+
+const _scoreColor = (s) => s >= 8 ? "#3fb950" : s >= 6 ? "#58a6ff" : s <= 2 ? "#f85149" : s <= 4 ? "#e3b341" : "#8b949e";
+const _macdBadge  = (m) => m === "buy"
+  ? `<span class="badge" style="background:#3fb950;color:#000">buy</span>`
+  : m === "sell"
+  ? `<span class="badge" style="background:#f85149">sell</span>`
+  : `<span class="badge bg-secondary">neutral</span>`;
+const _smaBadge   = (s) => s === "golden_cross"
+  ? `<span class="badge" style="background:#f6c343;color:#000">golden ✕</span>`
+  : s === "death_cross"
+  ? `<span class="badge" style="background:#f85149">death ✕</span>`
+  : `<span class="badge bg-secondary">neutral</span>`;
+
+function _buildScreenerRow(r) {
+  return `<tr style="cursor:pointer" data-ticker="${escHtml(r.ticker)}">
+    <td class="fw-bold" style="color:#58a6ff">${escHtml(r.ticker)}</td>
+    <td class="text-truncate" style="max-width:160px">${escHtml(r.name || "—")}</td>
+    <td><span class="fw-bold" style="color:${_scoreColor(r.bullish_score)}">${r.bullish_score ?? "—"}</span></td>
+    <td>${r.rsi != null ? Number(r.rsi).toFixed(1) : "—"}</td>
+    <td>${_macdBadge(r.macd_signal)}</td>
+    <td>${_smaBadge(r.sma_signal)}</td>
+    <td>$${r.close != null ? Number(r.close).toFixed(2) : "—"}</td>
+  </tr>`;
+}
+
+function _initScreenerTable() {
+  if (screenerTable) { screenerTable.destroy(); screenerTable = null; }
+  screenerTable = $("#screener-dt").DataTable({
+    order:      [[2, "desc"]],
+    pageLength: 25,
+    language:   { search: "Filter:", lengthMenu: "Show _MENU_" },
+  });
+  // Row click → load ticker
+  document.querySelectorAll("#screener-tbody tr[data-ticker]").forEach((row) => {
+    row.addEventListener("click", () => {
+      const t = row.dataset.ticker;
+      if (t) { loadChart(t, currentPeriod); }
+    });
+  });
+}
+
+function _screenerReady() {
+  const loading = el("screener-loading");
+  const scanBtn = el("screener-scan-btn");
+  if (loading) loading.style.display = "none";
+  if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Scan Now'; }
+  screenerLoaded = true;
+}
+
+function loadScreener(force = false) {
+  if (screenerLoaded && !force) return;
+
+  // Cancel any in-progress stream
+  if (screenerEs) { screenerEs.close(); screenerEs = null; }
+
+  const loading = el("screener-loading");
+  const errEl   = el("screener-error");
+  const tbody   = el("screener-tbody");
+  const countEl = el("screener-count");
+  const scanBtn = el("screener-scan-btn");
+
+  if (errEl)   errEl.style.display = "none";
+  if (loading) loading.style.display = "";
+  if (scanBtn) { scanBtn.disabled = true; scanBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Scanning…'; }
+
+  // If not forcing, try the cache first
+  if (!force) {
+    fetch("/api/screener").then((r) => r.json()).then((data) => {
+      if (data.results && data.results.length >= 10) {
+        // Render from cache instantly
+        if (screenerTable) { screenerTable.destroy(); screenerTable = null; }
+        tbody.innerHTML = data.results.map(_buildScreenerRow).join("");
+        _initScreenerTable();
+        if (countEl) countEl.textContent = `(${data.results.length} tickers)`;
+        const scannedEl = el("screener-scanned");
+        const scannedAt = el("screener-scanned-at");
+        if (data.scanned_at && scannedEl && scannedAt) {
+          scannedAt.textContent = data.scanned_at;
+          scannedEl.style.display = "";
+        }
+        _screenerReady();
+        return;
+      }
+      // Not enough cached data — fall through to SSE scan
+      _startScreenerStream(tbody, countEl, errEl);
+    }).catch(() => _startScreenerStream(tbody, countEl, errEl));
+    return;
+  }
+
+  // Force refresh — clear table and stream fresh
+  if (screenerTable) { screenerTable.destroy(); screenerTable = null; }
+  tbody.innerHTML = "";
+  _startScreenerStream(tbody, countEl, errEl);
+}
+
+function _startScreenerStream(tbody, countEl, errEl) {
+  if (countEl) countEl.textContent = "Downloading prices…";
+
+  screenerEs = new EventSource("/api/screener/stream");
+
+  screenerEs.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    if (msg.status === "downloading") {
+      if (countEl) countEl.textContent = "Downloading 100 tickers…";
+
+    } else if (msg.status === "analyzing") {
+      if (countEl) countEl.textContent = `Prices ready — running analysis…`;
+
+    } else if (msg.status === "row") {
+      tbody.insertAdjacentHTML("beforeend", _buildScreenerRow(msg));
+      if (countEl) countEl.textContent = `Scanning… ${msg.processed} / 100`;
+
+    } else if (msg.status === "done") {
+      screenerEs.close();
+      screenerEs = null;
+      _initScreenerTable();
+      if (countEl) countEl.textContent = `(${msg.count} tickers)`;
+      const scannedEl = el("screener-scanned");
+      const scannedAt = el("screener-scanned-at");
+      if (scannedEl && scannedAt) {
+        scannedAt.textContent = new Date().toLocaleString();
+        scannedEl.style.display = "";
+      }
+      _screenerReady();
+    }
+  };
+
+  screenerEs.onerror = () => {
+    screenerEs.close();
+    screenerEs = null;
+    if (errEl) { errEl.textContent = "Stream connection lost. Try Scan Now."; errEl.style.display = ""; }
+    _screenerReady();
+  };
+}
+
+// ── Portfolio ─────────────────────────────────────────
+function getPortfolioPositions() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_PORTFOLIO) || "[]");
+  } catch { return []; }
+}
+
+function savePortfolioPositions(positions) {
+  localStorage.setItem(LS_PORTFOLIO, JSON.stringify(positions));
+}
+
+async function loadPortfolio() {
+  const positions = getPortfolioPositions();
+
+  if (positions.length === 0) {
+    hide("port-table-row");
+    hide("portfolio-summary");
+    show("portfolio-placeholder");
+    el("portfolio-donut").innerHTML = "";
+    el("portfolio-donut-legend").innerHTML = "";
+    return;
+  }
+
+  hide("portfolio-placeholder");
+  show("port-loading");
+  hide("port-error");
+
+  try {
+    const tickers = positions.map((p) => p.ticker).join(",");
+    const res = await fetch(`/api/portfolio/prices?tickers=${encodeURIComponent(tickers)}`);
+    const data = await res.json();
+    hide("port-loading");
+
+    if (data.error) {
+      el("port-error").textContent = data.error;
+      showBlock("port-error");
+      return;
+    }
+
+    _renderPortfolio(positions, data.prices);
+  } catch (e) {
+    hide("port-loading");
+    el("port-error").textContent = "Failed to load portfolio prices.";
+    showBlock("port-error");
+  }
+}
+
+function _renderPortfolio(positions, prices) {
+  let totalInvested = 0;
+  let totalValue = 0;
+  const rows = [];
+
+  positions.forEach((p) => {
+    const currentPrice = prices[p.ticker] != null ? prices[p.ticker] : null;
+    const invested = p.shares * p.avg_price;
+    const marketValue = currentPrice != null ? p.shares * currentPrice : null;
+    const pnlDollar = marketValue != null ? marketValue - invested : null;
+    const pnlPct = pnlDollar != null && invested ? (pnlDollar / invested) * 100 : null;
+
+    totalInvested += invested;
+    if (marketValue != null) totalValue += marketValue;
+
+    rows.push({ ticker: p.ticker, shares: p.shares, avg_price: p.avg_price,
+      current: currentPrice, market_value: marketValue,
+      pnl_dollar: pnlDollar, pnl_pct: pnlPct });
+  });
+
+  const totalPnl = totalValue - totalInvested;
+  const totalPnlPct = totalInvested ? (totalPnl / totalInvested) * 100 : 0;
+  const pnlClass = totalPnl > 0 ? "trend-up" : totalPnl < 0 ? "trend-down" : "";
+  const pnlSign = totalPnl > 0 ? "+" : "";
+
+  el("port-invested").textContent = "$" + fmtNum(totalInvested);
+  el("port-value").textContent = "$" + fmtNum(totalValue);
+  el("port-pnl").innerHTML =
+    `<span class="${pnlClass}">${pnlSign}$${fmtNum(Math.abs(totalPnl))} (${pnlSign}${fmtNum(Math.abs(totalPnlPct))}%)</span>`;
+  el("port-count").textContent = positions.length;
+  show("portfolio-summary");
+
+  el("port-tbody").innerHTML = rows.map((r) => {
+    const rc = r.pnl_dollar == null ? "" : r.pnl_dollar > 0 ? "trend-up" : r.pnl_dollar < 0 ? "trend-down" : "";
+    const rs = r.pnl_dollar != null && r.pnl_dollar > 0 ? "+" : "";
+    const sharesStr = Number(r.shares).toLocaleString("en-US", { maximumFractionDigits: 4 });
+    return `<tr>
+      <td class="fw-bold" style="color:#58a6ff;cursor:pointer;" data-action="load" data-ticker="${escHtml(r.ticker)}">${escHtml(r.ticker)}</td>
+      <td class="text-end">${sharesStr}</td>
+      <td class="text-end">$${fmtNum(r.avg_price)}</td>
+      <td class="text-end">${r.current != null ? "$" + fmtNum(r.current) : "—"}</td>
+      <td class="text-end">${r.market_value != null ? "$" + fmtNum(r.market_value) : "—"}</td>
+      <td class="text-end ${rc}">${r.pnl_dollar != null ? rs + "$" + fmtNum(Math.abs(r.pnl_dollar)) : "—"}</td>
+      <td class="text-end ${rc}">${r.pnl_pct != null ? rs + fmtNum(Math.abs(r.pnl_pct)) + "%" : "—"}</td>
+      <td class="text-end">
+        <button class="btn btn-sm" style="color:#f85149;padding:1px 6px;border:none;background:transparent;"
+          data-action="remove" data-ticker="${escHtml(r.ticker)}" title="Remove position">
+          <i class="bi bi-trash3"></i>
+        </button>
+      </td>
+    </tr>`;
+  }).join("");
+
+  show("port-table-row");
+  _renderPortfolioDonut(rows);
+}
+
+function _renderPortfolioDonut(rows) {
+  const svgEl = el("portfolio-donut");
+  const legendEl = el("portfolio-donut-legend");
+  if (!svgEl) return;
+
+  const withVal = rows.filter((r) => r.market_value != null && r.market_value > 0);
+  if (withVal.length === 0) {
+    svgEl.innerHTML = "";
+    if (legendEl) legendEl.innerHTML = "";
+    return;
+  }
+
+  const totalMv = withVal.reduce((s, r) => s + r.market_value, 0) || 1;
+  const vals   = withVal.map((r) => Math.round((r.market_value / totalMv) * 100));
+  const colors = withVal.map((_, i) => PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]);
+  const labels = withVal.map((r) => r.ticker);
+
+  renderFlowDonut(svgEl, vals, colors, labels);
+
+  if (legendEl) {
+    legendEl.innerHTML = withVal.map((r, i) =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[i]};"></span>
+        <span style="color:${colors[i]};font-weight:600;">${escHtml(r.ticker)}</span>
+      </span>`
+    ).join("");
+  }
+}
+
+async function addPosition(ticker, qty, avgPrice, txType) {
+  const feedbackEl = el("port-add-feedback");
+  ticker = ticker.trim().toUpperCase();
+
+  if (!ticker) {
+    feedbackEl.innerHTML = '<span class="error-msg">Ticker is required.</span>';
+    return;
+  }
+  qty = parseFloat(qty);
+  if (isNaN(qty) || qty <= 0) {
+    feedbackEl.innerHTML = '<span class="error-msg">Quantity must be greater than 0.</span>';
+    return;
+  }
+
+  // Avg price only required for buys
+  if (txType === "buy") {
+    avgPrice = parseFloat(avgPrice);
+    if (isNaN(avgPrice) || avgPrice <= 0) {
+      feedbackEl.innerHTML = '<span class="error-msg">Avg buy price must be greater than 0.</span>';
+      return;
+    }
+  }
+
+  feedbackEl.innerHTML = '<span class="loading-spinner me-1" style="display:inline-block;"></span> Validating…';
+  const addBtn = el("port-add-btn");
+  if (addBtn) addBtn.disabled = true;
+
+  try {
+    const positions = getPortfolioPositions();
+    const idx = positions.findIndex((p) => p.ticker === ticker);
+
+    if (txType === "sell") {
+      // Sell: position must exist
+      if (idx < 0) {
+        feedbackEl.innerHTML = `<span class="error-msg">${escHtml(ticker)} is not in your portfolio.</span>`;
+        return;
+      }
+      const held = positions[idx].shares;
+      if (qty > held + 0.00001) {
+        feedbackEl.innerHTML =
+          `<span class="error-msg">You only hold ${held.toLocaleString("en-US", {maximumFractionDigits:4})} — can't sell ${qty}.</span>`;
+        return;
+      }
+      const remaining = parseFloat((held - qty).toFixed(4));
+      if (remaining <= 0.00001) {
+        positions.splice(idx, 1); // fully sold — remove position
+      } else {
+        positions[idx].shares = remaining; // partial sell — reduce qty, keep avg_price
+      }
+      savePortfolioPositions(positions);
+      feedbackEl.innerHTML = `<span style="color:#f85149;">&#10003; Sold ${qty} ${escHtml(ticker)}.</span>`;
+
+    } else {
+      // Buy: validate ticker via API first
+      const res = await fetch(`/api/search?q=${encodeURIComponent(ticker)}`);
+      const data = await res.json();
+      if (!data.valid) {
+        feedbackEl.innerHTML = `<span class="error-msg">Ticker "${escHtml(ticker)}" not found.</span>`;
+        return;
+      }
+
+      if (idx >= 0) {
+        // Average into existing position (weighted avg)
+        const prev = positions[idx];
+        const newQty = prev.shares + qty;
+        positions[idx].avg_price = parseFloat(
+          ((prev.shares * prev.avg_price + qty * avgPrice) / newQty).toFixed(4)
+        );
+        positions[idx].shares = parseFloat(newQty.toFixed(4));
+      } else {
+        positions.push({ ticker, shares: parseFloat(qty.toFixed(4)), avg_price: parseFloat(avgPrice.toFixed(4)) });
+      }
+      savePortfolioPositions(positions);
+      feedbackEl.innerHTML = `<span style="color:#3fb950;">&#10003; Bought ${qty} ${escHtml(ticker)}.</span>`;
+    }
+
+    el("port-ticker-input").value = "";
+    el("port-shares-input").value = "";
+    el("port-price-input").value = "";
+    await loadPortfolio();
+  } catch (e) {
+    feedbackEl.innerHTML = '<span class="error-msg">Action failed. Try again.</span>';
+  } finally {
+    if (addBtn) addBtn.disabled = false;
+  }
+}
+
+function removePosition(ticker) {
+  const positions = getPortfolioPositions().filter((p) => p.ticker !== ticker);
+  savePortfolioPositions(positions);
+  loadPortfolio();
+}
+
 // ── Tab Switching ─────────────────────────────────────
-const TAB_IDS = ["overview", "technical", "macro", "market", "fundamentals"];
+const TAB_IDS = ["overview", "technical", "macro", "market", "fundamentals", "screener", "portfolio"];
 
 function switchTab(tabName) {
   if (!TAB_IDS.includes(tabName)) tabName = "overview";
@@ -1567,13 +1935,79 @@ function escHtml(s) {
 // ── Init ──────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   // Restore active tab
-  switchTab(localStorage.getItem(LS_ACTIVE_TAB) || "overview");
+  const restoredTab = localStorage.getItem(LS_ACTIVE_TAB) || "overview";
+  switchTab(restoredTab);
+  if (restoredTab === "screener") loadScreener();
+  if (restoredTab === "portfolio") loadPortfolio();
 
   // Tab click handler
   el("dash-tabs").addEventListener("click", (e) => {
     const btn = e.target.closest(".dash-tab-btn[data-tab]");
-    if (btn) switchTab(btn.dataset.tab);
+    if (!btn) return;
+    switchTab(btn.dataset.tab);
+    if (btn.dataset.tab === "screener") loadScreener();
+    if (btn.dataset.tab === "portfolio") loadPortfolio();
   });
+
+  // Portfolio: Buy/Sell toggle
+  function _getPortTxType() {
+    return el("port-tx-sell") && el("port-tx-sell").checked ? "sell" : "buy";
+  }
+  function _updatePortToggleUI(type) {
+    const btn  = el("port-add-btn");
+    const icon = el("port-btn-icon");
+    const lbl  = el("port-btn-label");
+    const priceCol = el("port-price-col");
+    if (!btn) return;
+    if (type === "sell") {
+      btn.className  = "btn btn-danger w-100";
+      icon.className = "bi bi-dash-circle me-1";
+      lbl.textContent = "Sell";
+      if (priceCol) priceCol.style.visibility = "hidden";
+    } else {
+      btn.className  = "btn btn-success w-100";
+      icon.className = "bi bi-plus me-1";
+      lbl.textContent = "Buy";
+      if (priceCol) priceCol.style.visibility = "";
+    }
+  }
+  const portTxBuy  = el("port-tx-buy");
+  const portTxSell = el("port-tx-sell");
+  if (portTxBuy)  portTxBuy.addEventListener("change",  () => _updatePortToggleUI("buy"));
+  if (portTxSell) portTxSell.addEventListener("change", () => _updatePortToggleUI("sell"));
+
+  // Portfolio: Add/Sell button
+  const portAddBtn = el("port-add-btn");
+  if (portAddBtn) {
+    portAddBtn.addEventListener("click", () => {
+      addPosition(
+        el("port-ticker-input").value,
+        el("port-shares-input").value,
+        el("port-price-input").value,
+        _getPortTxType()
+      );
+    });
+  }
+  // Portfolio: Enter key in ticker input
+  const portTickerInput = el("port-ticker-input");
+  if (portTickerInput) {
+    portTickerInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const sharesEl = el("port-shares-input");
+        if (sharesEl && !sharesEl.value) { sharesEl.focus(); } else { portAddBtn && portAddBtn.click(); }
+      }
+    });
+  }
+  // Portfolio: event delegation on positions table
+  const portTbody = el("port-tbody");
+  if (portTbody) {
+    portTbody.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest("[data-action='remove']");
+      if (removeBtn) { removePosition(removeBtn.dataset.ticker); return; }
+      const loadCell = e.target.closest("[data-action='load']");
+      if (loadCell) { loadChart(loadCell.dataset.ticker, currentPeriod); }
+    });
+  }
 
   loadStatus();
   loadWatchlist();
@@ -1583,6 +2017,15 @@ document.addEventListener("DOMContentLoaded", () => {
   loadMovers();
   loadAlerts();
   startRefreshCountdown();
+
+  // Screener "Scan Now" button
+  const scanBtn = el("screener-scan-btn");
+  if (scanBtn) {
+    scanBtn.addEventListener("click", () => {
+      screenerLoaded = false;
+      loadScreener(true);
+    });
+  }
 
   // Restore last-viewed ticker from localStorage
   const savedTicker = localStorage.getItem(LS_LAST_TICKER);

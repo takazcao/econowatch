@@ -17,6 +17,8 @@ Functions:
     insert_alert(ticker, alert_type, message) -> bool: Save a new alert
     get_unread_alerts() -> list[dict]: Fetch all unread alerts
     mark_alerts_read() -> bool: Mark all alerts as read
+    upsert_screener_row(ticker, name, bullish_score, rsi, macd_signal, sma_signal, close) -> bool: Upsert one screener row
+    get_screener_results() -> list[dict]: Return all screener rows ordered by bullish_score DESC
 """
 import logging
 import os
@@ -103,6 +105,21 @@ def init_db() -> None:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 alert_date TEXT DEFAULT CURRENT_DATE,
                 UNIQUE(ticker, alert_type, alert_date)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS screener (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker        TEXT NOT NULL,
+                name          TEXT,
+                bullish_score INTEGER,
+                rsi           REAL,
+                macd_signal   TEXT,
+                sma_signal    TEXT,
+                close         REAL,
+                scanned_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker)
             )
         """)
 
@@ -462,6 +479,74 @@ def mark_alerts_read() -> bool:
     except Exception as e:
         logger.error("Failed to mark alerts as read: %s", e)
         return False
+
+
+def upsert_screener_row(
+    ticker: str,
+    name: str,
+    bullish_score: int,
+    rsi: float,
+    macd_signal: str,
+    sma_signal: str,
+    close: float,
+) -> bool:
+    """
+    Insert or replace a screener result row for a ticker.
+
+    Args:
+        ticker: The stock ticker symbol.
+        name: Company name.
+        bullish_score: Score 1-10 derived from technical analysis.
+        rsi: RSI value (14-period).
+        macd_signal: "buy" | "sell" | "neutral".
+        sma_signal: "golden_cross" | "death_cross" | "neutral".
+        close: Latest closing price.
+
+    Returns:
+        True if successful, False on failure.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO screener
+                    (ticker, name, bullish_score, rsi, macd_signal, sma_signal, close, scanned_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (ticker, name, bullish_score, rsi, macd_signal, sma_signal, close),
+            )
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("Failed to upsert screener row for %s: %s", ticker, e)
+        return False
+
+
+def get_screener_results() -> list:
+    """
+    Return all screener rows ordered by bullish_score descending.
+
+    Returns:
+        List of dicts with keys: ticker, name, bullish_score, rsi, macd_signal,
+        sma_signal, close, scanned_at. Returns empty list if no data.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT ticker, name, bullish_score, rsi, macd_signal, sma_signal,
+                       close, scanned_at
+                FROM screener
+                ORDER BY bullish_score DESC
+                """
+            )
+            rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error("Failed to get screener results: %s", e)
+        return []
 
 
 if __name__ == "__main__":

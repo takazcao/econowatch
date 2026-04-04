@@ -9,6 +9,7 @@ Functions:
     get_ticker_name(ticker) -> str: Return human-readable name for a ticker from yfinance
     get_ticker_news(ticker, limit) -> list[dict]: Fetch latest news headlines for a ticker
     fetch_stock_prices(ticker, period) -> bool: Fetch OHLCV data and save to DB
+    fetch_screener_batch(tickers, period) -> int: Batch-download prices for many tickers at once
     fetch_watchlist_prices() -> None: Fetch prices for all watchlist tickers
     fetch_fred_series(series_id, name, unit) -> bool: Fetch one FRED series and save to DB
     fetch_all_indicators() -> None: Fetch all FRED + CMC indicators
@@ -319,6 +320,62 @@ def fetch_stock_prices(ticker: str, period: str = "1y") -> bool:
     except Exception as e:
         logger.error("Unexpected error fetching %s: %s", ticker, e)
         return False
+
+
+def fetch_screener_batch(tickers: list, period: str = "3mo") -> int:
+    """
+    Batch-download price history for a list of tickers using a single yf.download() call.
+
+    Much faster than calling fetch_stock_prices() per ticker — one network round-trip
+    instead of N. Used by the screener to refresh 100 tickers efficiently.
+
+    Args:
+        tickers: List of ticker symbols.
+        period: yfinance period string (e.g. "3mo").
+
+    Returns:
+        Number of tickers successfully saved to DB.
+    """
+    if not tickers:
+        return 0
+
+    tickers_str = " ".join(tickers)
+    logger.info("Batch downloading %d tickers (period=%s) ...", len(tickers), period)
+
+    try:
+        df_all = yf.download(
+            tickers=tickers_str,
+            period=period,
+            group_by="ticker",
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+    except Exception as e:
+        logger.error("Batch download failed: %s", e)
+        return 0
+
+    saved = 0
+    for ticker in tickers:
+        try:
+            df_t = df_all[ticker].copy() if len(tickers) > 1 else df_all.copy()
+            df_t = df_t.dropna(how="all")
+            if df_t.empty:
+                logger.debug("No batch data for %s", ticker)
+                continue
+
+            df_t = df_t.reset_index()
+            df_t.columns = [str(c).lower() for c in df_t.columns]
+            df_t["date"] = df_t["date"].astype(str).str[:10]
+            df_t = df_t[["date", "open", "high", "low", "close", "volume"]].dropna(subset=["close"])
+
+            if database.insert_stock_prices(ticker, df_t):
+                saved += 1
+        except Exception as e:
+            logger.error("Failed to save batch data for %s: %s", ticker, e)
+
+    logger.info("Batch download complete: %d/%d tickers saved", saved, len(tickers))
+    return saved
 
 
 def fetch_watchlist_prices() -> None:

@@ -7,6 +7,7 @@ on a fixed interval so data stays fresh without manual intervention.
 Functions:
     start_scheduler() -> None: Start APScheduler with all background jobs
     stop_scheduler()  -> None: Shutdown scheduler gracefully on process exit
+    run_screener()    -> None: Fetch S&P 100 prices, run TA, save screener scores
 """
 import logging
 import os
@@ -18,6 +19,7 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from dotenv import load_dotenv
 
 import analysis
+import database
 import scraper
 
 # ── Constants ────────────────────────────────────────
@@ -25,6 +27,64 @@ load_dotenv()
 SCRAPE_INTERVAL_MINUTES    = int(os.getenv("SCRAPE_INTERVAL_MINUTES", "15"))
 INDICATOR_INTERVAL_MINUTES = 60
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+SP100_TICKERS = [
+    "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "BRK-B", "JPM", "UNH",
+    "XOM",  "JNJ",  "V",    "PG",   "MA",    "HD",   "CVX",  "MRK",   "ABBV","PEP",
+    "COST", "KO",   "AVGO", "WMT",  "MCD",   "CSCO", "ACN",  "LIN",   "TMO", "ABT",
+    "CRM",  "BAC",  "NKE",  "DHR",  "ORCL",  "NEE",  "TXN",  "PM",    "QCOM","RTX",
+    "HON",  "AMGN", "UPS",  "SBUX", "IBM",   "GS",   "CAT",  "LOW",   "SPGI","INTU",
+    "ELV",  "AXP",  "BLK",  "DE",   "GILD",  "ADI",  "MDLZ", "ISRG",  "VRTX","REGN",
+    "SYK",  "MO",   "ZTS",  "PLD",  "MMC",   "CI",   "TJX",  "EOG",   "LRCX","NOC",
+    "SO",   "D",    "DUK",  "AEP",  "SRE",   "PCG",  "WEC",  "ED",    "ES",  "XEL",
+    "GE",   "BA",   "MMM",  "LMT",  "GD",    "HUM",  "MCK",  "CAH",   "CNC", "CVS",
+    "SCHW", "BDX",  "AFL",  "MET",  "PRU",   "AIG",  "TRV",  "CB",    "AON", "ALL",
+]  # 100 tickers  (WBA delisted → SCHW; ANTM renamed to ELV already in list → BDX)
+
+SP100_NAMES = {
+    "AAPL": "Apple",          "MSFT": "Microsoft",        "AMZN": "Amazon",
+    "NVDA": "NVIDIA",         "GOOGL": "Alphabet",         "META": "Meta",
+    "TSLA": "Tesla",          "BRK-B": "Berkshire Hathaway","JPM": "JPMorgan Chase",
+    "UNH":  "UnitedHealth",   "XOM":  "ExxonMobil",        "JNJ": "Johnson & Johnson",
+    "V":    "Visa",           "PG":   "Procter & Gamble",   "MA":  "Mastercard",
+    "HD":   "Home Depot",     "CVX":  "Chevron",            "MRK": "Merck",
+    "ABBV": "AbbVie",         "PEP":  "PepsiCo",            "COST":"Costco",
+    "KO":   "Coca-Cola",      "AVGO": "Broadcom",           "WMT": "Walmart",
+    "MCD":  "McDonald's",     "CSCO": "Cisco",              "ACN": "Accenture",
+    "LIN":  "Linde",          "TMO":  "Thermo Fisher",      "ABT": "Abbott",
+    "CRM":  "Salesforce",     "BAC":  "Bank of America",    "NKE": "Nike",
+    "DHR":  "Danaher",        "ORCL": "Oracle",             "NEE": "NextEra Energy",
+    "TXN":  "Texas Instruments","PM": "Philip Morris",      "QCOM":"Qualcomm",
+    "RTX":  "RTX Corp",       "HON":  "Honeywell",          "AMGN":"Amgen",
+    "UPS":  "UPS",            "SBUX": "Starbucks",          "IBM": "IBM",
+    "GS":   "Goldman Sachs",  "CAT":  "Caterpillar",        "LOW": "Lowe's",
+    "SPGI": "S&P Global",     "INTU": "Intuit",             "ELV": "Elevance Health",
+    "AXP":  "American Express","BLK": "BlackRock",          "DE":  "John Deere",
+    "GILD": "Gilead Sciences","ADI":  "Analog Devices",     "MDLZ":"Mondelez",
+    "ISRG": "Intuitive Surgical","VRTX":"Vertex Pharma",    "REGN":"Regeneron",
+    "SYK":  "Stryker",        "MO":   "Altria",             "ZTS": "Zoetis",
+    "PLD":  "Prologis",       "MMC":  "Marsh McLennan",     "CI":  "Cigna",
+    "TJX":  "TJX Companies",  "EOG":  "EOG Resources",      "LRCX":"Lam Research",
+    "NOC":  "Northrop Grumman","SO":  "Southern Company",   "D":   "Dominion Energy",
+    "DUK":  "Duke Energy",    "AEP":  "American Elec Power","SRE": "Sempra",
+    "PCG":  "PG&E",           "WEC":  "WEC Energy",         "ED":  "Con Edison",
+    "ES":   "Eversource",     "XEL":  "Xcel Energy",        "GE":  "GE Aerospace",
+    "BA":   "Boeing",         "MMM":  "3M",                 "LMT": "Lockheed Martin",
+    "GD":   "General Dynamics","HUM": "Humana",             "MCK": "McKesson",
+    "CAH":  "Cardinal Health","CNC":  "Centene",            "CVS": "CVS Health",
+    "SCHW": "Charles Schwab",  "BDX":  "Becton Dickinson",   "AFL": "Aflac",
+    "MET":  "MetLife",        "PRU":  "Prudential",         "AIG": "AIG",
+    "TRV":  "Travelers",      "CB":   "Chubb",              "AON": "Aon",
+    "ALL":  "Allstate",
+}
+
+_SIGNAL_TO_SCORE = {
+    "STRONG BUY":  9,
+    "BUY":         7,
+    "HOLD":        5,
+    "SELL":        3,
+    "STRONG SELL": 1,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +107,44 @@ def _job_fetch_indicators() -> None:
     """Scheduled job: fetch all FRED economic indicators."""
     logger.info("Scheduler: running fetch_all_indicators()")
     scraper.fetch_all_indicators()
+
+
+def run_screener() -> None:
+    """
+    Fetch prices for all S&P 100 tickers, run TA analysis, and save scores to the screener table.
+
+    Uses a single yf.download() batch call for all 100 tickers instead of 100 individual
+    fetches, then runs TA analysis for each. Called daily at 16:15 ET and on-demand.
+    """
+    logger.info("Screener: starting S&P 100 scan (%d tickers)", len(SP100_TICKERS))
+
+    # One batch download for all 100 tickers — much faster than per-ticker calls
+    scraper.fetch_screener_batch(SP100_TICKERS, "3mo")
+
+    processed = 0
+    for ticker in SP100_TICKERS:
+        try:
+            result = analysis.generate_analysis(ticker, "3mo")
+            if result is None:
+                logger.debug("Screener: skipping %s — insufficient data", ticker)
+                continue
+
+            bullish_score = _SIGNAL_TO_SCORE.get(result["signal"], 5)
+            rsi = result["indicators"]["rsi"]["value"]
+            macd_trend = result["indicators"]["macd"]["trend"]
+            sma_cross = result["indicators"]["sma"]["cross"]
+            macd_signal = "buy" if macd_trend == "bullish" else ("sell" if macd_trend == "bearish" else "neutral")
+            sma_signal  = "golden_cross" if sma_cross == "bullish" else ("death_cross" if sma_cross == "bearish" else "neutral")
+            name = SP100_NAMES.get(ticker, ticker)
+
+            database.upsert_screener_row(
+                ticker, name, bullish_score, rsi, macd_signal, sma_signal, result["price"]
+            )
+            processed += 1
+        except Exception as e:
+            logger.error("Screener: error processing %s: %s", ticker, e)
+
+    logger.info("Screener complete: %d/%d tickers processed", processed, len(SP100_TICKERS))
 
 
 # ── Event listener ────────────────────────────────────
@@ -95,6 +193,18 @@ def start_scheduler() -> None:
         name="Fetch FRED indicators",
         max_instances=1,
         misfire_grace_time=120,
+    )
+
+    _scheduler.add_job(
+        run_screener,
+        trigger="cron",
+        hour=16,
+        minute=15,
+        id="screener",
+        name="S&P 100 daily screener",
+        max_instances=1,
+        misfire_grace_time=300,
+        replace_existing=True,
     )
 
     _scheduler.start()

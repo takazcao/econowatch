@@ -18,8 +18,11 @@ Functions:
     mark_alerts_read() -> Response: Mark all unread alerts as read
     export_csv(ticker) -> Response: Export price history as CSV file download
     get_fundamentals(ticker) -> Response: Return fundamental data for a ticker as JSON
+    get_screener() -> Response: Return S&P 100 screener results as JSON
+    portfolio_prices() -> Response: Return latest close price for a list of tickers as JSON
 """
 import atexit
+import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -28,7 +31,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import csv
 import io
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 import analysis
 import database
@@ -454,6 +457,93 @@ def get_compare():
         result["series"][ticker] = pct_changes
 
     return jsonify(result), 200
+
+
+@app.route("/api/screener")
+def get_screener():
+    """Route: GET /api/screener — Return cached screener results (no scan triggered)."""
+    rows = database.get_screener_results()
+    scanned_at = rows[0].get("scanned_at", "") if rows else None
+    return jsonify({
+        "results":    rows,
+        "count":      len(rows),
+        "scanned_at": scanned_at,
+    }), 200
+
+
+@app.route("/api/screener/stream")
+def screener_stream():
+    """
+    Route: GET /api/screener/stream — SSE stream of S&P 100 screener results.
+
+    Emits events:
+        {status: "downloading"}           — batch price fetch started
+        {status: "analyzing", saved: N}   — prices saved, analysis starting
+        {status: "row", ticker, ...}       — one ticker result ready
+        {status: "done", count: N}         — all tickers processed
+    """
+    def generate():
+        yield f"data: {json.dumps({'status': 'downloading', 'msg': 'Downloading 100 tickers...'})}\n\n"
+
+        saved = scraper.fetch_screener_batch(scheduler.SP100_TICKERS, "3mo")
+
+        yield f"data: {json.dumps({'status': 'analyzing', 'saved': saved, 'msg': f'Prices ready ({saved} tickers). Running analysis...'})}\n\n"
+
+        processed = 0
+        for ticker in scheduler.SP100_TICKERS:
+            try:
+                result = analysis.generate_analysis(ticker, "3mo")
+                if result is None:
+                    continue
+
+                bullish_score = scheduler._SIGNAL_TO_SCORE.get(result["signal"], 5)
+                rsi = result["indicators"]["rsi"]["value"]
+                macd_trend = result["indicators"]["macd"]["trend"]
+                sma_cross  = result["indicators"]["sma"]["cross"]
+                macd_signal = "buy"  if macd_trend == "bullish" else ("sell" if macd_trend == "bearish" else "neutral")
+                sma_signal  = "golden_cross" if sma_cross == "bullish" else ("death_cross" if sma_cross == "bearish" else "neutral")
+                name = scheduler.SP100_NAMES.get(ticker, ticker)
+
+                database.upsert_screener_row(ticker, name, bullish_score, rsi, macd_signal, sma_signal, result["price"])
+                processed += 1
+
+                yield f"data: {json.dumps({'status': 'row', 'ticker': ticker, 'name': name, 'bullish_score': bullish_score, 'rsi': round(rsi, 1), 'macd_signal': macd_signal, 'sma_signal': sma_signal, 'close': result['price'], 'processed': processed})}\n\n"
+
+            except Exception as e:
+                logger.error("Screener stream error for %s: %s", ticker, e)
+
+        yield f"data: {json.dumps({'status': 'done', 'count': processed})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/api/portfolio/prices")
+def portfolio_prices():
+    """Route: GET /api/portfolio/prices?tickers=AAPL,MSFT — Return latest close price for each ticker."""
+    raw = request.args.get("tickers", "").strip()
+    if not raw:
+        return jsonify({"error": "Missing tickers parameter"}), 400
+
+    tickers = [t.strip().upper() for t in raw.split(",") if t.strip()][:20]
+    if not tickers:
+        return jsonify({"error": "No valid tickers provided"}), 400
+
+    for t in tickers:
+        if not _is_valid_ticker_format(t):
+            return jsonify({"error": f"Invalid ticker format: {t}"}), 400
+
+    prices = {}
+    for ticker in tickers:
+        rows = database.get_stock_history(ticker, days=2)
+        if rows and rows[-1]["close"]:
+            prices[ticker] = round(rows[-1]["close"], 2)
+
+    updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return jsonify({"prices": prices, "updated_at": updated_at}), 200
 
 
 @app.route("/api/status")

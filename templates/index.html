@@ -162,6 +162,12 @@
         <button class="dash-tab-btn" data-tab="fundamentals">
           <i class="bi bi-journal-text me-1"></i> Fundamentals
         </button>
+        <button class="dash-tab-btn" data-tab="screener">
+          <i class="bi bi-funnel me-1"></i> Screener
+        </button>
+        <button class="dash-tab-btn" data-tab="portfolio">
+          <i class="bi bi-briefcase me-1"></i> Portfolio
+        </button>
       </div>
 
       <!-- ══════════════════════════════════════════════ -->
@@ -804,6 +810,189 @@
         <div id="fundamentals-error" class="error-msg mt-2" style="display: none"></div>
       </div>
       <!-- /tab-fundamentals -->
+
+      <!-- ══════════════════════════════════════════════ -->
+      <!-- Tab: Screener — S&P 100 Technical Scan         -->
+      <!-- ══════════════════════════════════════════════ -->
+      <div id="tab-screener" style="display: none">
+        <div class="row mb-3 g-3">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                  <i class="bi bi-funnel me-2"></i> S&amp;P 100 Screener
+                  <span id="screener-count" class="ms-2 text-muted" style="font-size: 0.8rem"></span>
+                </span>
+                <span class="d-flex align-items-center gap-2">
+                  <span id="screener-loading" class="loading-spinner" style="display: none"></span>
+                  <button id="screener-scan-btn" class="btn btn-sm btn-outline-secondary" style="font-size:0.75rem" title="Run a full S&amp;P 100 scan now (takes ~2 min)">
+                    <i class="bi bi-arrow-repeat me-1"></i>Scan Now
+                  </button>
+                </span>
+              </div>
+              <div class="card-body p-2">
+                <div id="screener-error" class="error-msg mb-2" style="display: none"></div>
+                <div class="table-responsive">
+                  <table id="screener-dt" class="table table-dark table-hover table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>Ticker</th>
+                        <th>Name</th>
+                        <th>Score</th>
+                        <th>RSI</th>
+                        <th>MACD</th>
+                        <th>SMA Signal</th>
+                        <th>Close</th>
+                      </tr>
+                    </thead>
+                    <tbody id="screener-tbody"></tbody>
+                  </table>
+                </div>
+                <div id="screener-scanned" class="text-muted mt-2" style="font-size: 0.75rem; display: none">
+                  Last scanned: <span id="screener-scanned-at"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /tab-screener -->
+
+      <!-- ══════════════════════════════════════════════ -->
+      <!-- Tab: Portfolio — Positions + P&L + Allocation  -->
+      <!-- ══════════════════════════════════════════════ -->
+      <div id="tab-portfolio" style="display: none">
+        <!-- Summary + Allocation Row -->
+        <div class="row mb-3 g-3">
+          <div class="col-12 col-md-8">
+            <div class="card h-100">
+              <div class="card-header">
+                <i class="bi bi-briefcase me-1"></i> Portfolio Summary
+              </div>
+              <div class="card-body d-flex flex-column justify-content-center">
+                <div id="portfolio-placeholder" class="text-muted text-center py-4" style="font-size:1rem;">
+                  <i class="bi bi-briefcase" style="font-size:2rem;opacity:0.2;display:block;margin-bottom:0.5rem;"></i>
+                  Add your first position below to get started
+                </div>
+                <div id="portfolio-summary" style="display:none;">
+                  <div class="row g-3 text-center">
+                    <div class="col-6 col-md-3">
+                      <div class="text-muted" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Total Invested</div>
+                      <div id="port-invested" class="fw-bold" style="font-size:1.4rem;color:#e6edf3;">—</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                      <div class="text-muted" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Current Value</div>
+                      <div id="port-value" class="fw-bold" style="font-size:1.4rem;color:#e6edf3;">—</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                      <div class="text-muted" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Total P&amp;L</div>
+                      <div id="port-pnl" class="fw-bold" style="font-size:1.4rem;">—</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                      <div class="text-muted" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Positions</div>
+                      <div id="port-count" class="fw-bold" style="font-size:1.4rem;color:#e6edf3;">—</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="card h-100">
+              <div class="card-header"><i class="bi bi-pie-chart me-1"></i> Allocation</div>
+              <div class="card-body d-flex align-items-center justify-content-center">
+                <div id="portfolio-donut-wrap" class="text-center">
+                  <svg id="portfolio-donut" viewBox="0 0 120 120" width="160" height="160" style="display:block;margin:0 auto;"></svg>
+                  <div id="portfolio-donut-legend" class="mt-2" style="font-size:0.75rem;color:#8b949e;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Position Form -->
+        <div class="row mb-3 g-3">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex align-items-center gap-3">
+                <i class="bi bi-arrow-left-right me-1"></i> Transaction
+                <div class="btn-group btn-group-sm" role="group">
+                  <input type="radio" class="btn-check" name="port-tx" id="port-tx-buy" autocomplete="off" checked>
+                  <label class="btn btn-outline-success" for="port-tx-buy">
+                    <i class="bi bi-plus-circle me-1"></i>Buy
+                  </label>
+                  <input type="radio" class="btn-check" name="port-tx" id="port-tx-sell" autocomplete="off">
+                  <label class="btn btn-outline-danger" for="port-tx-sell">
+                    <i class="bi bi-dash-circle me-1"></i>Sell
+                  </label>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="row g-2 align-items-end">
+                  <div class="col-12 col-sm-3">
+                    <label class="form-label text-muted" style="font-size:0.75rem;">Ticker</label>
+                    <input id="port-ticker-input" type="text" class="form-control"
+                      placeholder="e.g. AAPL, BTC-USD" autocapitalize="characters" spellcheck="false"
+                      style="background:#1c2128;border:1px solid #30363d;color:#e6edf3;">
+                  </div>
+                  <div class="col-12 col-sm-3">
+                    <label class="form-label text-muted" style="font-size:0.75rem;">Quantity</label>
+                    <input id="port-shares-input" type="number" class="form-control"
+                      placeholder="e.g. 10 or 0.5" min="0.0001" step="any"
+                      style="background:#1c2128;border:1px solid #30363d;color:#e6edf3;">
+                  </div>
+                  <div class="col-12 col-sm-3" id="port-price-col">
+                    <label class="form-label text-muted" style="font-size:0.75rem;">Avg Buy Price ($)</label>
+                    <input id="port-price-input" type="number" class="form-control"
+                      placeholder="e.g. 175.00" min="0.0001" step="any"
+                      style="background:#1c2128;border:1px solid #30363d;color:#e6edf3;">
+                  </div>
+                  <div class="col-12 col-sm-3">
+                    <button id="port-add-btn" class="btn btn-success w-100" type="button">
+                      <i class="bi bi-plus me-1" id="port-btn-icon"></i>
+                      <span id="port-btn-label">Buy</span>
+                    </button>
+                  </div>
+                </div>
+                <div id="port-add-feedback" class="mt-2" style="min-height:18px;font-size:0.85rem;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Positions Table -->
+        <div class="row mb-3 g-3" id="port-table-row" style="display:none;">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header"><i class="bi bi-list-ul me-1"></i> Positions</div>
+              <div class="card-body p-0">
+                <div id="port-loading" class="text-center py-3" style="display:none;">
+                  <span class="loading-spinner"></span>
+                </div>
+                <div id="port-error" class="error-msg p-3" style="display:none;"></div>
+                <div class="table-responsive">
+                  <table class="table table-dark table-hover table-sm mb-0" id="port-positions-table">
+                    <thead>
+                      <tr>
+                        <th>Ticker</th>
+                        <th class="text-end">Qty</th>
+                        <th class="text-end">Avg Price</th>
+                        <th class="text-end">Current</th>
+                        <th class="text-end">Mkt Value</th>
+                        <th class="text-end">P&amp;L $</th>
+                        <th class="text-end">P&amp;L %</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="port-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /tab-portfolio -->
     </div>
     <!-- /container -->
 
@@ -855,6 +1044,10 @@
     <!-- ── Scripts ────────────────────────────────────── -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
       /* All dashboard logic lives in static/js/main.js */
