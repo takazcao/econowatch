@@ -417,6 +417,22 @@ python wsgi.py
 # Accessible from any device on your LAN
 ```
 
+### Run (Docker)
+
+```bash
+cp .env.example .env   # fill in your API keys
+docker compose up -d   # build image and start in background
+# Dashboard at http://localhost:5000
+```
+
+The SQLite database is stored in `./data/` on your host machine and mounted into the container — it survives restarts and image rebuilds.
+
+```bash
+docker compose logs -f        # tail logs
+docker compose down           # stop and remove container
+docker compose up -d --build  # rebuild after code changes
+```
+
 ### Default Tracked Tickers (25)
 
 **Stocks:** AAPL · MSFT · GOOGL · TSLA · AMZN · NVDA · META · JPM · BRK-B · V

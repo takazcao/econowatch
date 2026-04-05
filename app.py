@@ -20,6 +20,8 @@ Functions:
     get_fundamentals(ticker) -> Response: Return fundamental data for a ticker as JSON
     get_screener() -> Response: Return S&P 100 screener results as JSON
     portfolio_prices() -> Response: Return latest close price for a list of tickers as JSON
+    get_range(ticker) -> Response: Return 52-week high, low, current price and range position as JSON
+    get_ai_summary() -> Response: Return AI-generated 2-3 sentence macro regime summary as JSON
 """
 import atexit
 import json
@@ -31,9 +33,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 import csv
 import io
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, stream_with_context, url_for
 
 import analysis
+import cache as _cache_module
 import database
 import scheduler
 import scraper
@@ -49,9 +52,13 @@ if not FLASK_SECRET_KEY:
         logging.warning("FLASK_SECRET_KEY not set — using insecure dev default")
     else:
         raise RuntimeError("FLASK_SECRET_KEY must be set when FLASK_DEBUG=False")
+DASHBOARD_PIN = os.getenv("DASHBOARD_PIN")  # optional — if unset, app is open
 STALE_THRESHOLD_MINUTES = 15
 
 VALID_PERIODS = {"1d", "5d", "1w", "1mo", "3mo", "6mo", "1y"}
+
+# ── AI Summary Cache ─────────────────────────────────
+_ai_summary_cache: dict = {"summary": None, "generated_at": None, "expires_at": None}
 
 PERIOD_TO_DAYS = {
     "1d":  2,    # yesterday + today
@@ -79,6 +86,49 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = FLASK_SECRET_KEY
+_cache_module.cache.init_app(app, config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 300})
+
+
+# ── PIN Auth ─────────────────────────────────────────
+
+@app.before_request
+def _check_pin():
+    """Block all routes (except /login, /logout, static) when DASHBOARD_PIN is set and user is not authenticated."""
+    if not DASHBOARD_PIN:
+        return  # PIN not configured — open access
+    if request.endpoint in ("login", "do_login", "logout", "static"):
+        return  # always allow auth endpoints and static assets
+    if not session.get("authenticated"):
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "Unauthorized"}), 401
+        return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET"])
+def login():
+    """Route: GET /login — Render PIN entry form."""
+    if not DASHBOARD_PIN:
+        return redirect(url_for("index"))
+    if session.get("authenticated"):
+        return redirect(url_for("index"))
+    return render_template("login.html", error=None)
+
+
+@app.route("/login", methods=["POST"])
+def do_login():
+    """Route: POST /login — Validate PIN and start session."""
+    pin = request.form.get("pin", "")
+    if pin == DASHBOARD_PIN:
+        session["authenticated"] = True
+        return redirect(url_for("index"))
+    return render_template("login.html", error="Incorrect PIN. Try again."), 401
+
+
+@app.route("/logout")
+def logout():
+    """Route: GET /logout — Clear session and redirect to /login."""
+    session.clear()
+    return redirect(url_for("login"))
 
 
 # ── Helpers ──────────────────────────────────────────
@@ -544,6 +594,177 @@ def portfolio_prices():
 
     updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return jsonify({"prices": prices, "updated_at": updated_at}), 200
+
+
+@app.route("/api/range/<string:ticker>")
+def get_range(ticker: str):
+    """Route: GET /api/range/<ticker> — Return 52-week high, low, current price, and range position."""
+    ticker = ticker.upper()
+
+    if not _is_valid_ticker_format(ticker):
+        return jsonify({"error": "Invalid ticker format"}), 400
+
+    data = scraper.get_ticker_range(ticker)
+    if not data:
+        return jsonify({"error": f"52-week range data unavailable for {ticker}"}), 404
+
+    return jsonify(data), 200
+
+
+def _ind_trend(ind: dict) -> str:
+    """Compute trend string from an indicator row's value vs prev_value."""
+    v = ind.get("value")
+    p = ind.get("prev_value")
+    if v is None or p is None:
+        return "flat"
+    if v > p:
+        return "up"
+    if v < p:
+        return "down"
+    return "flat"
+
+
+def _rule_based_summary(indicators: list) -> str:
+    """
+    Generate a plain-English macro summary from indicator data without an AI API.
+
+    Args:
+        indicators: List of indicator dicts from database.get_indicators().
+
+    Returns:
+        A 2-3 sentence summary string.
+    """
+    by_id = {ind["series_id"]: ind for ind in indicators}
+
+    sentences = []
+
+    # Sentence 1 — Rates (Fed Funds + 10Y Treasury)
+    fed   = by_id.get("FEDFUNDS")
+    dgs10 = by_id.get("DGS10")
+    dgs2  = by_id.get("DGS2")
+    if fed:
+        s = f"The Fed Funds rate stands at {round(fed['value'], 2)}%"
+        if dgs10:
+            s += f", with the 10-year Treasury at {round(dgs10['value'], 2)}%"
+        if dgs2 and dgs10:
+            spread = round(dgs10["value"] - dgs2["value"], 2)
+            curve  = "inverted" if spread < 0 else "normal"
+            s += f" (yield curve {curve}, spread {spread:+.2f}%)"
+        sentences.append(s + ".")
+
+    # Sentence 2 — Labour market
+    unrate = by_id.get("UNRATE")
+    if unrate:
+        ur_dir = {"up": "rising", "down": "falling", "flat": "steady"}.get(_ind_trend(unrate), "steady")
+        sentences.append(
+            f"The labor market remains {ur_dir} with unemployment at {round(unrate['value'], 1)}%."
+        )
+
+    # Sentence 3 — Volatility / risk sentiment
+    vix = by_id.get("VIXCLS")
+    if vix:
+        v = round(vix["value"], 1)
+        if v > 30:
+            mood = f"elevated market stress (VIX {v}) warrants caution"
+        elif v > 20:
+            mood = f"moderate volatility (VIX {v}) reflects cautious sentiment"
+        else:
+            mood = f"calm market conditions (VIX {v}) suggest risk-on positioning"
+        sentences.append(mood[0].upper() + mood[1:] + ".")
+
+    if not sentences:
+        return "Insufficient indicator data to generate a macro summary."
+
+    return " ".join(sentences)
+
+
+@app.route("/api/ai-summary")
+def get_ai_summary():
+    """Route: GET /api/ai-summary — Return macro regime summary as JSON (Claude AI or rule-based)."""
+    now = datetime.now()
+
+    # Serve cached result if still fresh
+    if _ai_summary_cache["expires_at"] and now < _ai_summary_cache["expires_at"]:
+        return jsonify({
+            "available":    True,
+            "summary":      _ai_summary_cache["summary"],
+            "generated_at": _ai_summary_cache["generated_at"],
+            "source":       _ai_summary_cache.get("source", "auto"),
+        }), 200
+
+    indicators = database.get_indicators()
+    if not indicators:
+        return jsonify({"error": "No indicator data for AI summary"}), 404
+
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+
+    # ── Path A: Claude API ────────────────────────────
+    if anthropic_key:
+        lines = [
+            f"- {ind['name']}: {round(ind['value'], 2)} {ind['unit']} (trend: {_ind_trend(ind)})"
+            for ind in indicators
+        ]
+        prompt = (
+            "You are a macro economist. Based on these latest economic indicators, "
+            "write a 2-3 sentence plain-English summary of the current macro regime. "
+            "Focus on the most important signals: inflation, rates, and growth momentum. "
+            "Be direct and concise. No bullet points or headers.\n\n"
+            f"Economic Indicators:\n" + "\n".join(lines)
+        )
+        try:
+            import anthropic as _anthropic
+            client = _anthropic.Anthropic(api_key=anthropic_key)
+            message = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=256,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            summary = message.content[0].text.strip()
+            source  = "claude"
+            logger.info("AI summary generated via Claude API")
+        except Exception as e:
+            logger.error("Claude API call failed, falling back to rule-based: %s", e)
+            summary = _rule_based_summary(indicators)
+            source  = "auto"
+
+    # ── Path B: Rule-based fallback (no API key) ──────
+    else:
+        summary = _rule_based_summary(indicators)
+        source  = "auto"
+
+    generated_at = now.strftime("%Y-%m-%d %H:%M:%S")
+    _ai_summary_cache["summary"]      = summary
+    _ai_summary_cache["generated_at"] = generated_at
+    _ai_summary_cache["expires_at"]   = now + timedelta(hours=24)
+    _ai_summary_cache["source"]       = source
+
+    return jsonify({
+        "available":    True,
+        "summary":      summary,
+        "generated_at": generated_at,
+        "source":       source,
+    }), 200
+
+
+@app.route("/api/overlay/<string:series_id>")
+def get_overlay(series_id: str):
+    """Route: GET /api/overlay/<series_id> — Return FRED time series for chart overlay."""
+    series_id = series_id.upper()
+    allowed = {s[0] for s in scraper.FRED_SERIES}
+    if series_id not in allowed:
+        return jsonify({"error": "Unknown series_id"}), 400
+
+    rows = database.get_indicator_history(series_id, days=500)
+    if not rows:
+        return jsonify({"error": "No data available for this series"}), 404
+
+    meta = next((s for s in scraper.FRED_SERIES if s[0] == series_id), None)
+    return jsonify({
+        "series_id": series_id,
+        "name":      meta[1] if meta else series_id,
+        "unit":      meta[2] if meta else "",
+        "data":      [{"time": r["date"], "value": r["value"]} for r in rows],
+    }), 200
 
 
 @app.route("/api/status")

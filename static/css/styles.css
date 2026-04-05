@@ -130,6 +130,24 @@ body {
 .change-down { background: #2d1c1c; color: #f85149; }
 .change-flat { background: #1c1c2d; color: #8b949e; }
 
+/* FRED Overlay dropdown */
+.overlay-select {
+    background: #1c2128;
+    border: 1px solid #30363d;
+    color: #ffa657;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 6px;
+    max-width: 130px;
+    cursor: pointer;
+}
+.overlay-select:focus {
+    border-color: #ffa657;
+    box-shadow: 0 0 0 2px rgba(255,166,87,0.15);
+    outline: none;
+}
+.overlay-select option { background: #1c2128; color: #e6edf3; }
+
 /* Period tabs */
 .period-tabs .btn {
     font-size: 1rem;
@@ -273,6 +291,72 @@ footer {
 
 /* Compare chart */
 #compare-chart { height: 260px; }
+
+/* GridStack — dark theme overrides */
+.grid-stack {
+    background: transparent;
+}
+.grid-stack-item-content {
+    inset: 4px;                      /* small gap between widgets */
+    border-radius: 10px;
+    overflow: hidden;
+}
+.grid-stack-item-content > .card {
+    height: 100%;
+    border-radius: 10px;
+    overflow: auto;
+}
+/* Drag handle: show grab cursor on card headers inside GridStack */
+.grid-stack .card-header {
+    cursor: grab;
+    user-select: none;
+}
+.grid-stack .card-header:active {
+    cursor: grabbing;
+}
+/* GridStack placeholder (drop zone) */
+.grid-stack-placeholder > .placeholder-content {
+    background: rgba(88, 166, 255, 0.08);
+    border: 2px dashed #30363d;
+    border-radius: 10px;
+}
+/* Resize handle */
+.ui-resizable-se {
+    background: #30363d;
+    border-radius: 3px 0 6px 0;
+    opacity: 0.6;
+}
+.ui-resizable-se:hover { opacity: 1; }
+
+/* 52-Week Range Bar */
+.range-bar-track {
+    position: relative;
+    height: 6px;
+    background: #21262d;
+    border-radius: 3px;
+    margin: 4px 0 8px;
+}
+.range-bar-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #f85149 0%, #f6c343 50%, #3fb950 100%);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+.range-bar-marker {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 12px;
+    height: 12px;
+    background: #e6edf3;
+    border: 2px solid #0d1117;
+    border-radius: 50%;
+    transition: left 0.4s ease;
+    z-index: 1;
+}
 
 /* ── Mobile responsive (≤576px) ─────────────────────── */
 @media (max-width: 576px) {

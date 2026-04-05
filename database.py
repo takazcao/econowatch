@@ -57,6 +57,8 @@ def init_db() -> None:
     os.makedirs(DB_PATH.parent, exist_ok=True)
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS stocks (

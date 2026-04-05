@@ -8,6 +8,7 @@ Functions:
     validate_ticker(ticker) -> bool: Check if a ticker exists on yfinance
     get_ticker_name(ticker) -> str: Return human-readable name for a ticker from yfinance
     get_ticker_news(ticker, limit) -> list[dict]: Fetch latest news headlines for a ticker
+    get_ticker_range(ticker) -> dict | None: Fetch 52-week high, low, and current price
     fetch_stock_prices(ticker, period) -> bool: Fetch OHLCV data and save to DB
     fetch_screener_batch(tickers, period) -> int: Batch-download prices for many tickers at once
     fetch_watchlist_prices() -> None: Fetch prices for all watchlist tickers
@@ -30,6 +31,7 @@ import yfinance as yf
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
+import cache as _cache_module
 import database
 
 # ── Constants ────────────────────────────────────────
@@ -109,12 +111,14 @@ logger = logging.getLogger(__name__)
 
 # ── Retry Helpers ─────────────────────────────────────
 
+@_cache_module.cache.memoize(timeout=300)   # 5 minutes per ticker+period
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def _yfinance_history(ticker: str, period: str):
     """Fetch yfinance price history with automatic exponential-backoff retry (max 3 attempts)."""
     return yf.Ticker(ticker).history(period=period)
 
 
+@_cache_module.cache.memoize(timeout=86400)  # 24 hours per series_id
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def _fred_get(params: dict) -> dict:
     """Call FRED API with automatic exponential-backoff retry (max 3 attempts)."""
@@ -281,6 +285,55 @@ def get_ticker_fundamentals(ticker: str) -> dict | None:
         }
     except Exception as e:
         logger.warning("Could not fetch fundamentals for %s: %s", ticker, e)
+        return None
+
+
+def get_ticker_range(ticker: str) -> dict | None:
+    """
+    Fetch the 52-week high, low, and current price for a ticker from yfinance.
+
+    Args:
+        ticker: The stock ticker symbol (e.g. "AAPL").
+
+    Returns:
+        Dict with keys: ticker, current, low_52w, high_52w, range_pct.
+        range_pct is position of current price within the 52-week range (0–100).
+        Returns None on failure or missing data.
+    """
+    try:
+        info = yf.Ticker(ticker).info or {}
+        high = info.get("fiftyTwoWeekHigh")
+        low  = info.get("fiftyTwoWeekLow")
+        current = (
+            info.get("currentPrice")
+            or info.get("regularMarketPrice")
+            or info.get("previousClose")
+        )
+
+        if high is None or low is None or current is None:
+            logger.warning("52-week range data unavailable for %s", ticker)
+            return None
+
+        high    = round(float(high),    2)
+        low     = round(float(low),     2)
+        current = round(float(current), 2)
+
+        if high == low:
+            range_pct = 50.0
+        else:
+            range_pct = round((current - low) / (high - low) * 100, 1)
+            range_pct = max(0.0, min(100.0, range_pct))
+
+        return {
+            "ticker":    ticker,
+            "current":   current,
+            "low_52w":   low,
+            "high_52w":  high,
+            "range_pct": range_pct,
+            "error":     None,
+        }
+    except Exception as e:
+        logger.warning("Could not fetch 52-week range for %s: %s", ticker, e)
         return None
 
 

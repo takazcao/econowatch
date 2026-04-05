@@ -25,16 +25,35 @@ const LS_ACTIVE_TAB = "ew_active_tab"; // localStorage key
 const LS_CUSTOM_WL = "ew_custom_watchlist"; // localStorage key
 const LS_PORTFOLIO = "ew_portfolio_positions"; // localStorage key
 const PORTFOLIO_COLORS = ["#58a6ff","#3fb950","#ffa657","#f85149","#bc8cff","#f6c343","#26a17b","#e3b341","#79c0ff","#56d364"];
+const LS_LAYOUT_PREFIX = "ew_grid_layout_"; // localStorage key prefix for GridStack layouts
+
+// Default GridStack layouts (x, y, w, h in 12-column units, cellHeight=80px)
+const GRID_DEFAULTS = {
+  overview: [
+    { id: "chart",   x: 0, y: 0,  w: 8, h: 5 },
+    { id: "price",   x: 8, y: 0,  w: 4, h: 5 },
+    { id: "compare", x: 0, y: 5,  w: 12, h: 4 },
+  ],
+  market: [
+    { id: "btc-dom",    x: 0, y: 0, w: 6, h: 5 },
+    { id: "stablecoin", x: 6, y: 0, w: 6, h: 5 },
+    { id: "gainers",    x: 0, y: 5, w: 6, h: 5 },
+    { id: "losers",     x: 6, y: 5, w: 6, h: 5 },
+  ],
+};
 
 // ── State ─────────────────────────────────────────────
 let currentTicker = null;
 let currentPeriod = "1mo";
 let stockChart = null;
+let overlaySeriesObj = null;   // active LightweightCharts LineSeries for FRED overlay
+let currentOverlayId = null;   // active FRED series_id
 let refreshTimer = REFRESH_INTERVAL_SEC;
 let refreshIntervalId = null;
 let watchlistData = []; // [{ticker, name}]
 let customWatchlist = []; // [{ticker, name}]
 let acActiveIndex = -1; // autocomplete keyboard nav
+const _grids = {}; // GridStack instances keyed by tab name
 
 // ── Helpers ───────────────────────────────────────────
 function el(id) {
@@ -361,6 +380,7 @@ async function loadChart(ticker, period) {
     loadAnalysis(ticker, period);
     loadFundamentals(ticker);
     loadNews(ticker);
+    loadRange(ticker);
   } catch (e) {
     hide("chart-wrapper");
     el("chart-error").textContent = "Error: " + e.message;
@@ -370,6 +390,7 @@ async function loadChart(ticker, period) {
     hide("analysis-row");
     hide("fundamentals-row");
     hide("news-row");
+    hide("range-bar-section");
   }
 }
 
@@ -447,6 +468,7 @@ function renderChart(data) {
     stockChart.remove();
     stockChart = null;
   }
+  overlaySeriesObj = null;   // series references are invalid after chart.remove()
 
   const chartEl = el("tv-chart");
   chartEl.innerHTML = "";
@@ -464,6 +486,7 @@ function renderChart(data) {
     },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor: "#30363d" },
+    leftPriceScale:  { borderColor: "#30363d", visible: false },
     timeScale: {
       borderColor: "#30363d",
       timeVisible: true,
@@ -471,6 +494,11 @@ function renderChart(data) {
   });
 
   stockChart = chart;
+
+  // Re-apply active overlay if one was selected before chart reload
+  if (currentOverlayId) {
+    _applyOverlay(currentOverlayId);
+  }
 
   const hasCandleData =
     Array.isArray(data.opens) &&
@@ -602,6 +630,29 @@ function updatePriceSummary(data, period) {
   if (csvBtn && data.ticker) {
     csvBtn.href = `/api/export/${encodeURIComponent(data.ticker)}?period=${period}`;
     csvBtn.style.display = "";
+  }
+}
+
+// ── 52-Week Range Bar ─────────────────────────────────
+async function loadRange(ticker) {
+  try {
+    const res = await fetch(`/api/range/${encodeURIComponent(ticker)}`);
+    const data = await res.json();
+
+    if (data.error || data.low_52w == null || data.high_52w == null) {
+      hide("range-bar-section");
+      return;
+    }
+
+    el("range-low").textContent  = "$" + fmtNum(data.low_52w);
+    el("range-high").textContent = "$" + fmtNum(data.high_52w);
+    el("range-pct-text").textContent = "Currently at " + fmtNum(data.range_pct, 1) + "% of range";
+    el("range-bar-fill").style.width   = data.range_pct + "%";
+    el("range-bar-marker").style.left  = data.range_pct + "%";
+
+    show("range-bar-section");
+  } catch (e) {
+    hide("range-bar-section");
   }
 }
 
@@ -927,6 +978,40 @@ function renderMacro(data) {
     .join("");
 
   show("macro-recommendation");
+}
+
+// ── AI Macro Insights ─────────────────────────────────
+async function loadAISummary() {
+  show("ai-loading");
+  try {
+    const res = await fetch("/api/ai-summary");
+    const data = await res.json();
+    hide("ai-loading");
+
+    if (data.error || !data.available) return;
+
+    el("ai-summary-text").textContent = data.summary;
+    el("ai-generated-at").textContent = data.generated_at
+      ? "Generated: " + data.generated_at
+      : "";
+
+    // Source badge
+    const badge = el("ai-source-badge");
+    if (data.source === "claude") {
+      badge.textContent = "Claude AI";
+      badge.style.cssText =
+        "background:#1a3a2a;color:#3fb950;border:1px solid #3fb950;font-size:0.75rem";
+    } else {
+      badge.textContent = "Rule-based";
+      badge.style.cssText =
+        "background:#1c2128;color:#8b949e;border:1px solid #30363d;font-size:0.75rem";
+    }
+    show("ai-source-badge");
+
+    showBlock("ai-insights-row");
+  } catch (e) {
+    hide("ai-loading");
+  }
 }
 
 // ── Analysis Panel ────────────────────────────────────
@@ -1536,6 +1621,7 @@ function refreshAll() {
   loadStatus();
   loadIndicators();
   loadMacro();
+  loadAISummary();
   loadCryptoMetrics();
   loadMovers();
   loadAlerts();
@@ -1908,6 +1994,120 @@ function removePosition(ticker) {
   loadPortfolio();
 }
 
+// ── FRED Overlay ──────────────────────────────────────
+
+async function _applyOverlay(seriesId) {
+  if (!stockChart) return;
+
+  // Remove existing overlay series first
+  if (overlaySeriesObj) {
+    try { stockChart.removeSeries(overlaySeriesObj); } catch (_) {}
+    overlaySeriesObj = null;
+  }
+
+  try {
+    const res = await fetch(`/api/overlay/${encodeURIComponent(seriesId)}`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.data || !json.data.length) return;
+
+    // Show left axis for the overlay
+    stockChart.applyOptions({ leftPriceScale: { visible: true, borderColor: "#ffa657" } });
+
+    const line = stockChart.addLineSeries({
+      color:           "#ffa657",
+      lineWidth:       1,
+      priceScaleId:    "left",
+      lastValueVisible: true,
+      priceLineVisible: false,
+      title:           json.name,
+    });
+    line.setData(json.data);
+    overlaySeriesObj = line;
+  } catch (e) {
+    // silently ignore overlay load errors
+  }
+}
+
+function clearOverlay() {
+  if (overlaySeriesObj && stockChart) {
+    try { stockChart.removeSeries(overlaySeriesObj); } catch (_) {}
+    overlaySeriesObj = null;
+  }
+  if (stockChart) {
+    stockChart.applyOptions({ leftPriceScale: { visible: false } });
+  }
+  currentOverlayId = null;
+  const sel = el("overlay-select");
+  if (sel) sel.value = "";
+}
+
+// ── GridStack ─────────────────────────────────────────
+/**
+ * Initialize a GridStack grid for the given tab (lazy — only once per tab).
+ * Restores saved layout from localStorage; saves on every drag/resize.
+ *
+ * Args:
+ *     tabId: Tab name matching GRID_DEFAULTS key (e.g. "overview").
+ */
+function _initGrid(tabId) {
+  if (_grids[tabId]) {
+    // Already initialized — just trigger a resize recalculation.
+    try { _grids[tabId].onParentResize(); } catch (_) {}
+    return;
+  }
+  const gridEl = el("gs-" + tabId);
+  if (!gridEl || typeof GridStack === "undefined") return;
+
+  const grid = GridStack.init(
+    {
+      column: 12,
+      cellHeight: 80,
+      draggable: { handle: ".card-header" },
+      resizable: { handles: "se" },
+      animate: true,
+      float: false,
+      disableOneColumnMode: false,
+    },
+    gridEl
+  );
+
+  // Restore saved layout if available
+  const saved = localStorage.getItem(LS_LAYOUT_PREFIX + tabId);
+  if (saved) {
+    try {
+      grid.load(JSON.parse(saved));
+    } catch (_) {}
+  }
+
+  // Persist layout whenever user drags or resizes
+  grid.on("change", () => {
+    localStorage.setItem(LS_LAYOUT_PREFIX + tabId, JSON.stringify(grid.save()));
+    // Resize TradingView chart if it's in this grid (overview tab only)
+    if (tabId === "overview" && stockChart) {
+      const chartEl = el("tv-chart");
+      if (chartEl) {
+        stockChart.resize(chartEl.clientWidth, 300);
+        stockChart.timeScale().fitContent();
+      }
+    }
+  });
+
+  _grids[tabId] = grid;
+}
+
+/**
+ * Reset all GridStack layouts to defaults and clear localStorage entries.
+ */
+function resetAllLayouts() {
+  Object.entries(GRID_DEFAULTS).forEach(([tabId, defaultLayout]) => {
+    localStorage.removeItem(LS_LAYOUT_PREFIX + tabId);
+    if (_grids[tabId]) {
+      _grids[tabId].load(defaultLayout);
+    }
+  });
+}
+
 // ── Tab Switching ─────────────────────────────────────
 const TAB_IDS = ["overview", "technical", "macro", "market", "fundamentals", "screener", "portfolio"];
 
@@ -1921,6 +2121,8 @@ function switchTab(tabName) {
     btn.classList.toggle("active", btn.dataset.tab === tabName);
   });
   localStorage.setItem(LS_ACTIVE_TAB, tabName);
+  // Initialize GridStack for tabs that have a grid
+  if (GRID_DEFAULTS[tabName]) _initGrid(tabName);
 }
 
 // ── Escape HTML ───────────────────────────────────────
@@ -2013,10 +2215,25 @@ document.addEventListener("DOMContentLoaded", () => {
   loadWatchlist();
   loadIndicators();
   loadMacro();
+  loadAISummary();
   loadCryptoMetrics();
   loadMovers();
   loadAlerts();
   startRefreshCountdown();
+
+  // FRED Overlay dropdown
+  const overlaySelect = el("overlay-select");
+  if (overlaySelect) {
+    overlaySelect.addEventListener("change", () => {
+      const val = overlaySelect.value;
+      if (!val) {
+        clearOverlay();
+      } else {
+        currentOverlayId = val;
+        _applyOverlay(val);
+      }
+    });
+  }
 
   // Screener "Scan Now" button
   const scanBtn = el("screener-scan-btn");
@@ -2025,6 +2242,12 @@ document.addEventListener("DOMContentLoaded", () => {
       screenerLoaded = false;
       loadScreener(true);
     });
+  }
+
+  // Reset Layout button
+  const resetLayoutBtn = el("reset-layout-btn");
+  if (resetLayoutBtn) {
+    resetLayoutBtn.addEventListener("click", resetAllLayouts);
   }
 
   // Restore last-viewed ticker from localStorage
