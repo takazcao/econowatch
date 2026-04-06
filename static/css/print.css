@@ -1,0 +1,284 @@
+/* ═══════════════════════════════════════════════════════════
+   print.css — EconoWatch Tear Sheet
+   Applied only via media="print" (window.print / Ctrl+P).
+
+   Design decisions:
+   • Keep the app's dark theme — printed PDF matches branding
+   • Completely neutralise GridStack absolute positioning
+   • Strip every interactive element not needed on paper
+   ═══════════════════════════════════════════════════════════ */
+
+@media print {
+
+  /* ── 1. Force backgrounds and colours to print ─────────── */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-sizing: border-box !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 1.2cm 1.5cm 1.5cm 1.5cm;
+  }
+
+  /* ── 2. Base body — dark theme preserved ──────────────── */
+  html, body {
+    background: #0d1117 !important;
+    color: #e6edf3 !important;
+    font-size: 9pt !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  /* ── 3. THE CRITICAL FIX: neutralise GridStack ────────── */
+  /*
+     GridStack sets position:absolute + inline top/left/w/h on every
+     .grid-stack-item AND position:absolute on .grid-stack-item-content.
+     We must override ALL of these to restore normal document flow.
+  */
+  .grid-stack {
+    display: block !important;
+    position: static !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  .grid-stack-item {
+    display: block !important;
+    position: static !important;   /* kills absolute positioning */
+    width: 100% !important;        /* full width regardless of gs-w */
+    height: auto !important;
+    min-height: 0 !important;
+    transform: none !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    float: none !important;
+    margin-bottom: 14pt !important;
+    padding: 0 !important;
+  }
+
+  .grid-stack-item-content {
+    position: static !important;   /* kills inner absolute */
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Remove drag/resize decorations */
+  .gs-resize-handle,
+  .ui-resizable-handle,
+  .gridstack-placeholder {
+    display: none !important;
+  }
+
+  /* Bootstrap h-100 causes issues when parent height is auto */
+  .grid-stack-item .card.h-100,
+  .grid-stack-item .card {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  /* ── 4. Hide all interactive / non-print elements ─────── */
+  /* Navbar buttons and status */
+  #alerts-btn,
+  #reset-layout-btn,
+  #status-pill,
+  #last-updated,
+  a[href="/settings"],
+  .navbar a[href="/settings"] { display: none !important; }
+
+  /* Search and watchlist */
+  .row:has(#search-input),
+  .row:has(#wl-stocks),
+  #wl-custom-container,
+  #wl-stocks,
+  #wl-etfs,
+  #wl-crypto,
+  #wl-custom,
+  #search-feedback,
+  #autocomplete-list { display: none !important; }
+
+  /* Chart card controls */
+  #overlay-select,
+  #print-btn,
+  #btn-star-ticker,
+  .period-tabs,
+  #chart-placeholder,
+  #chart-legend,
+  #chart-error { display: none !important; }
+
+  /* All tabs except overview */
+  #dash-tabs { display: none !important; }
+  #tab-macro,
+  #tab-market,
+  #tab-screener,
+  #tab-portfolio { display: none !important; }
+
+  /* Floating buttons and toasts */
+  #ask-ai-btn,
+  #ask-ai-btn-locked,
+  .toast-container,
+  .offcanvas { display: none !important; }
+
+  /* Modal (alerts) */
+  .modal,
+  .modal-backdrop { display: none !important; }
+
+  /* Overview compare widget — too wide for print */
+  .grid-stack-item[gs-id="compare"] { display: none !important; }
+
+  /* ── 5. Show the right sections ───────────────────────── */
+
+  /* Overview is always shown */
+  #tab-overview {
+    display: block !important;
+  }
+
+  /* Show chart wrapper even though it was display:none via JS */
+  #chart-wrapper {
+    display: block !important;
+  }
+  #tv-chart {
+    display: block !important;
+    width: 100% !important;
+    height: 260pt !important;   /* fixed height so canvas renders */
+    overflow: hidden !important;
+  }
+  #tv-chart canvas {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* ── 6. Navbar — minimal print header ─────────────────── */
+  .navbar {
+    display: flex !important;
+    background: #161b22 !important;
+    border-bottom: 1.5pt solid #58a6ff !important;
+    padding: 6pt 10pt !important;
+    margin-bottom: 14pt !important;
+    color: #e6edf3 !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+
+  .navbar-brand {
+    color: #e6edf3 !important;
+    font-size: 13pt !important;
+    font-weight: 700 !important;
+  }
+
+  /* Inject ticker + date into navbar via pseudo-element */
+  .navbar::after {
+    content: attr(data-print-ticker) "  ·  " attr(data-print-date);
+    color: #8b949e !important;
+    font-size: 9pt !important;
+  }
+
+  /* ── 7. Cards ─────────────────────────────────────────── */
+  .card {
+    background: #161b22 !important;
+    border: 1pt solid #30363d !important;
+    color: #e6edf3 !important;
+    border-radius: 4pt !important;
+    break-inside: avoid !important;
+    margin-bottom: 10pt !important;
+    page-break-inside: avoid !important;
+  }
+
+  .card-header {
+    background: #1c2128 !important;
+    color: #e6edf3 !important;
+    border-bottom: 1pt solid #30363d !important;
+    font-size: 8.5pt !important;
+    font-weight: 600 !important;
+    padding: 5pt 10pt !important;
+  }
+
+  .card-body {
+    padding: 8pt 10pt !important;
+    background: #161b22 !important;
+  }
+
+  /* ── 8. Technical Analysis tab on page 2 ──────────────── */
+  #tab-technical {
+    display: block !important;
+    page-break-before: always !important;
+  }
+
+  #analysis-row {
+    display: block !important;
+  }
+
+  /* Hide TA param inputs in print */
+  #ta-rsi-length,
+  #ta-sma-fast,
+  #ta-sma-slow,
+  #analysis-loading,
+  #analysis-updated { display: none !important; }
+
+  /* ── 9. Typography — fix inline colour overrides ──────── */
+  /* Bootstrap text-muted and inline grey styles */
+  .text-muted,
+  [style*="color: #8b949e"],
+  [style*="color:#8b949e"] {
+    color: #8b949e !important;  /* keep legible on dark bg */
+  }
+
+  [style*="color: #58a6ff"],
+  [style*="color:#58a6ff"],
+  .brand-eco { color: #58a6ff !important; }
+
+  [style*="color: #3fb950"],
+  [style*="color:#3fb950"],
+  .change-up { color: #3fb950 !important; }
+
+  [style*="color: #f85149"],
+  [style*="color:#f85149"],
+  .change-down { color: #f85149 !important; }
+
+  /* Signal badges */
+  .signal-buy   { color: #3fb950 !important; border-color: #3fb950 !important; }
+  .signal-sell  { color: #f85149 !important; border-color: #f85149 !important; }
+  .signal-hold  { color: #d29922 !important; border-color: #d29922 !important; }
+
+  /* Tables */
+  table, th, td {
+    border-color: #30363d !important;
+    color: #e6edf3 !important;
+    background: transparent !important;
+  }
+
+  /* Bootstrap row/col — normal flow */
+  .row { margin: 0 !important; }
+  .col-md-3 { float: left !important; width: 25% !important; }
+  .col-md-4 { float: left !important; width: 33.33% !important; }
+  .col-6    { float: left !important; width: 50% !important; }
+
+  /* ── 10. Page break hints ──────────────────────────────── */
+  #analysis-body .row { break-inside: avoid !important; }
+
+  /* ── 11. Print footer ─────────────────────────────────── */
+  body::after {
+    content: "EconoWatch  ·  Tear Sheet  ·  Not financial advice";
+    display: block !important;
+    text-align: center !important;
+    font-size: 7.5pt !important;
+    color: #484f58 !important;
+    margin-top: 20pt !important;
+    padding-top: 6pt !important;
+    border-top: 0.5pt solid #30363d !important;
+  }
+
+} /* end @media print */

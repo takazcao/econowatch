@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EconoWatch — Settings</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        background: #0d1117;
+        color: #e6edf3;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .settings-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+      }
+      .settings-card .section-header {
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8b949e;
+        border-bottom: 1px solid #30363d;
+        padding-bottom: 0.6rem;
+        margin-bottom: 1.2rem;
+      }
+      .form-control,
+      .form-select {
+        background: #1c2128;
+        border: 1px solid #30363d;
+        color: #e6edf3;
+      }
+      .form-control:focus,
+      .form-select:focus {
+        background: #1c2128;
+        border-color: #58a6ff;
+        color: #e6edf3;
+        box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
+      }
+      .form-control::placeholder {
+        color: #484f58;
+      }
+      .form-label {
+        font-size: 0.875rem;
+        color: #c9d1d9;
+        margin-bottom: 0.3rem;
+      }
+      .form-text {
+        color: #8b949e;
+        font-size: 0.78rem;
+      }
+      .pro-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        background: linear-gradient(135deg, #f78166, #ff7b72);
+        color: #fff;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        text-transform: uppercase;
+      }
+      .pro-badge-unlocked {
+        background: linear-gradient(135deg, #3fb950, #2ea043);
+      }
+      .future-badge {
+        font-size: 0.7rem;
+        color: #8b949e;
+        border: 1px solid #30363d;
+        border-radius: 4px;
+        padding: 0.1rem 0.4rem;
+        vertical-align: middle;
+      }
+      .navbar-settings {
+        background: #161b22;
+        border-bottom: 1px solid #30363d;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-settings px-3 py-2">
+      <a
+        href="/"
+        class="btn btn-sm me-3"
+        style="
+          color: #8b949e;
+          border: 1px solid #30363d;
+          background: transparent;
+          font-size: 0.8rem;
+        "
+      >
+        <i class="bi bi-arrow-left me-1"></i> Dashboard
+      </a>
+      <span class="navbar-brand mb-0 fw-bold fs-5">
+        <i class="bi bi-gear me-2" style="color: #58a6ff"></i>Settings
+      </span>
+      {% if pro_unlocked %}
+      <span class="pro-badge pro-badge-unlocked ms-auto"
+        ><i class="bi bi-check-circle-fill"></i> Pro Active</span
+      >
+      {% else %}
+      <span class="pro-badge ms-auto"
+        ><i class="bi bi-lock-fill"></i> Free Plan</span
+      >
+      {% endif %}
+    </nav>
+
+    <div class="container py-4" style="max-width: 760px">
+      <!-- Flash messages -->
+      {% for category, msg in get_flashed_messages(with_categories=True) %}
+      <div
+        class="alert py-2 mb-3 {% if category == 'success' %}alert-success{% else %}alert-warning{% endif %}"
+        style="font-size: 0.9rem; border-radius: 8px"
+      >
+        <i
+          class="bi {% if category == 'success' %}bi-check-circle me-1{% else %}bi-exclamation-circle me-1{% endif %}"
+        ></i
+        >{{ msg }}
+      </div>
+      {% endfor %}
+
+      <form method="POST" action="/settings">
+        {# CSRF: route must call generate_csrf_token() and validate
+        request.form['_csrf_token'] == session['_csrf_token'] #}
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}" />
+
+        <!-- ── License & Plan ── -->
+        <div class="settings-card p-4 mb-4">
+          <div class="section-header">
+            <i class="bi bi-key me-2"></i>License &amp; Plan
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="license_key">License Key</label>
+            <input
+              type="text"
+              class="form-control font-monospace"
+              id="license_key"
+              name="license_key"
+              value="{{ settings.license_key }}"
+              placeholder="XXXX-XXXX-XXXX-XXXX"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <div class="form-text">
+              Enter your EconoWatch Pro license key to unlock AI Chat, Alerts,
+              and Newsletter features. {% if pro_unlocked %}
+              <span class="text-success ms-1"
+                ><i class="bi bi-check-circle-fill"></i> License active</span
+              >
+              {% elif settings.license_key %}
+              <span class="text-warning ms-1"
+                ><i class="bi bi-exclamation-circle-fill"></i> Not
+                validated</span
+              >
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Branding ── -->
+        <div class="settings-card p-4 mb-4">
+          <div class="section-header">
+            <i class="bi bi-palette me-2"></i>Branding
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label" for="logo_url">Custom Logo URL</label>
+              <input
+                type="url"
+                class="form-control"
+                id="logo_url"
+                name="logo_url"
+                value="{{ settings.logo_url }}"
+                placeholder="https://example.com/logo.png"
+                pattern="https?://.+"
+                title="Must start with http:// or https://"
+              />
+              <div class="form-text">
+                Leave blank to show the default EconoWatch logo.
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="brand_color">Brand Color</label>
+              <div class="input-group">
+                <input
+                  type="color"
+                  class="form-control form-control-color"
+                  id="brand_color_picker"
+                  value="{{ settings.brand_color or '#58a6ff' }}"
+                  title="Pick a brand color"
+                  style="width: 48px; padding: 2px 4px; cursor: pointer"
+                />
+                <input
+                  type="text"
+                  class="form-control font-monospace"
+                  id="brand_color"
+                  name="brand_color"
+                  value="{{ settings.brand_color or '#58a6ff' }}"
+                  placeholder="#58a6ff"
+                  maxlength="7"
+                />
+              </div>
+              <div class="form-text">Hex color for navbar and accents.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Premium Data Keys (BYOK) ── -->
+        <div class="settings-card p-4 mb-4">
+          <div class="section-header">
+            <i class="bi bi-database-gear me-2"></i>Premium Data Keys (BYOK)
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="polygon_api_key"
+                >Polygon.io API Key</label
+              >
+              <input
+                type="password"
+                class="form-control font-monospace"
+                id="polygon_api_key"
+                name="polygon_api_key"
+                value=""
+                placeholder="{{ '(saved — leave blank to keep)' if settings.polygon_api_key else 'Enter API key' }}"
+                autocomplete="new-password"
+              />
+              <div class="form-text">Used as primary data source when set.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="finnhub_api_key"
+                >Finnhub API Key</label
+              >
+              <input
+                type="password"
+                class="form-control font-monospace"
+                id="finnhub_api_key"
+                name="finnhub_api_key"
+                value=""
+                placeholder="{{ '(saved — leave blank to keep)' if settings.finnhub_api_key else 'Enter API key' }}"
+                autocomplete="new-password"
+              />
+              <div class="form-text">Fallback when Polygon is unavailable.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Alerts: Discord / Telegram ── -->
+        <div class="settings-card p-4 mb-4">
+          <div class="section-header">
+            <i class="bi bi-bell-fill me-2"></i>Alerts
+            <span class="pro-badge ms-2"
+              ><i class="bi bi-lock-fill"></i> Pro</span
+            >
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="discord_webhook_url"
+              >Discord Webhook URL</label
+            >
+            <input
+              type="url"
+              class="form-control"
+              id="discord_webhook_url"
+              name="discord_webhook_url"
+              value="{{ settings.discord_webhook_url }}"
+              placeholder="https://discord.com/api/webhooks/..."
+            />
+            <div class="form-text">
+              Screener alerts (score ≥ 9, RSI &lt; 30) will be posted here.
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="telegram_bot_token"
+                >Telegram Bot Token</label
+              >
+              <input
+                type="password"
+                class="form-control font-monospace"
+                id="telegram_bot_token"
+                name="telegram_bot_token"
+                value=""
+                placeholder="{{ '(saved — leave blank to keep)' if settings.telegram_bot_token else 'Enter bot token' }}"
+                autocomplete="new-password"
+              />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="telegram_chat_id"
+                >Telegram Chat ID</label
+              >
+              <input
+                type="text"
+                class="form-control font-monospace"
+                id="telegram_chat_id"
+                name="telegram_chat_id"
+                value="{{ settings.telegram_chat_id }}"
+                placeholder="-1001234567890"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Email Newsletter (SMTP) ── -->
+        <div class="settings-card p-4 mb-4">
+          <div class="section-header">
+            <i class="bi bi-envelope-fill me-2"></i>Email Newsletter (SMTP)
+            <span class="pro-badge ms-2"
+              ><i class="bi bi-lock-fill"></i> Pro</span
+            >
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-8">
+              <label class="form-label" for="smtp_host">SMTP Host</label>
+              <input
+                type="text"
+                class="form-control"
+                id="smtp_host"
+                name="smtp_host"
+                value="{{ settings.smtp_host }}"
+                placeholder="smtp.gmail.com"
+              />
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="smtp_port">SMTP Port</label>
+              <input
+                type="number"
+                class="form-control"
+                id="smtp_port"
+                name="smtp_port"
+                value="{{ settings.smtp_port }}"
+                placeholder="587"
+                min="1"
+                max="65535"
+              />
+            </div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label" for="smtp_user">SMTP Username</label>
+              <input
+                type="email"
+                class="form-control"
+                id="smtp_user"
+                name="smtp_user"
+                value="{{ settings.smtp_user }}"
+                placeholder="you@gmail.com"
+              />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="smtp_pass"
+                >SMTP Password / App Password</label
+              >
+              <input
+                type="password"
+                class="form-control"
+                id="smtp_pass"
+                name="smtp_pass"
+                value=""
+                placeholder="{{ '(saved — leave blank to keep)' if settings.smtp_pass else 'Enter app password' }}"
+                autocomplete="new-password"
+              />
+            </div>
+          </div>
+
+          <div class="mb-0">
+            <label class="form-label" for="newsletter_to"
+              >Newsletter Recipients</label
+            >
+            <input
+              type="text"
+              class="form-control"
+              id="newsletter_to"
+              name="newsletter_to"
+              value="{{ settings.newsletter_to }}"
+              placeholder="alice@example.com, bob@example.com"
+            />
+            <div class="form-text">
+              Comma-separated list of email addresses for the daily digest.
+            </div>
+          </div>
+        </div>
+
+        <!-- Save button -->
+        <div class="d-flex justify-content-end gap-2 mb-5">
+          <a href="/" class="btn btn-outline-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-floppy me-1"></i> Save Settings
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      // Sync color picker → hex input
+      const picker = document.getElementById("brand_color_picker");
+      const hex = document.getElementById("brand_color");
+      picker.addEventListener("input", () => {
+        hex.value = picker.value;
+      });
+      hex.addEventListener("input", () => {
+        if (/^#[0-9a-fA-F]{6}$/.test(hex.value)) picker.value = hex.value;
+      });
+    </script>
+  </body>
+</html>
