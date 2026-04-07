@@ -8,6 +8,8 @@ Functions:
     find_levels(highs, lows, window) -> dict: Find support and resistance levels
     generate_analysis(ticker, period) -> dict | None: Full TA analysis for a ticker
     generate_macro_analysis() -> dict: Macro regime + asset class recommendation
+    get_radar_data(ticker) -> dict | None: 6-dimension radar scores for a ticker
+    broadcast_alert(message) -> None: Send alert to Discord and/or Telegram
 """
 import logging
 from datetime import date
@@ -743,6 +745,132 @@ def generate_macro_analysis() -> dict:
     }
 
 
+def get_radar_data(ticker: str) -> Optional[dict]:
+    """
+    Compute 6 normalized (0-100) radar dimensions for a ticker.
+
+    Dimensions: RSI, Trend (SMA cross), Momentum (MACD), Volume, Bollinger, 52W Range.
+    Requires at least MIN_DATA_POINTS rows; returns None if insufficient data.
+
+    Args:
+        ticker: The stock ticker symbol.
+
+    Returns:
+        Dict with keys: ticker, labels, scores, price. None on insufficient data.
+    """
+    rows = database.get_stock_history(ticker, 365)
+    if len(rows) < MIN_DATA_POINTS:
+        return None
+
+    df_rows = [r for r in rows if r["close"] is not None]
+    if len(df_rows) < MIN_DATA_POINTS:
+        return None
+
+    df = pd.DataFrame(df_rows)[["close", "high", "low", "volume"]].astype(float)
+    closes  = df["close"].tolist()
+    highs   = df["high"].tolist()
+    lows    = df["low"].tolist()
+    volumes = df["volume"].tolist()
+    price   = closes[-1]
+
+    def _safe(series, default, decimals=2):
+        try:
+            v = series.iloc[-1]
+            return round(float(v), decimals) if pd.notna(v) else default
+        except Exception:
+            return default
+
+    rsi_s   = ta.rsi(df["close"], length=14)
+    sma20_s = ta.sma(df["close"], length=20)
+    sma50_s = ta.sma(df["close"], length=50)
+    macd_df = ta.macd(df["close"], fast=12, slow=26, signal=9)
+    bb_df   = ta.bbands(df["close"], length=20, std=2)
+
+    rsi   = _safe(rsi_s,   50.0, 1)
+    sma20 = _safe(sma20_s, None, 2)
+    sma50 = _safe(sma50_s, None, 2)
+
+    # MACD histogram → momentum score (50 = neutral)
+    histogram = 0.0
+    if macd_df is not None and not macd_df.empty:
+        histogram = _safe(macd_df["MACDh_12_26_9"], 0.0, 4)
+    hist_pct     = (histogram / price * 100) if price > 0 else 0
+    momentum_score = round(min(100.0, max(0.0, 50.0 + hist_pct * 25)), 1)
+
+    # Bollinger %B → 0–100 directly
+    pct_b = 0.5
+    if bb_df is not None and not bb_df.empty:
+        _bbp = next((c for c in bb_df.columns if c.startswith("BBP_")), None)
+        if _bbp:
+            pct_b = _safe(bb_df[_bbp], 0.5, 4)
+    bollinger_score = round(float(pct_b) * 100, 1)
+
+    # SMA cross trend score
+    if sma20 is not None and sma50 is not None:
+        if sma20 > sma50 * 1.001:
+            trend_score = 85.0
+        elif sma20 < sma50 * 0.999:
+            trend_score = 15.0
+        else:
+            trend_score = 50.0
+    else:
+        trend_score = 50.0
+
+    # Volume score via existing helper
+    vol_vote, _ = _volume_vote(volumes, closes)
+    vol_score = round(50.0 + vol_vote * 30.0, 1)
+
+    # 52-week range position
+    high_52w = max(highs)
+    low_52w  = min(lows)
+    if high_52w > low_52w:
+        range_score = round((price - low_52w) / (high_52w - low_52w) * 100, 1)
+    else:
+        range_score = 50.0
+
+    return {
+        "ticker": ticker,
+        "labels": ["RSI", "Trend", "Momentum", "Volume", "Bollinger", "52W Range"],
+        "scores": [rsi, trend_score, momentum_score, vol_score, bollinger_score, range_score],
+        "price": round(price, 2),
+    }
+
+
+def broadcast_alert(message: str) -> None:
+    """
+    Send an alert message to configured Discord and/or Telegram channels.
+
+    Reads webhook credentials from the settings table. Only sends to a channel
+    if the relevant credentials are configured. Silently skips if neither is set.
+
+    Args:
+        message: The plain-text alert message to broadcast.
+    """
+    import requests as _requests
+
+    discord_url = database.get_setting("discord_webhook_url", "")
+    tg_token    = database.get_setting("telegram_bot_token", "")
+    tg_chat_id  = database.get_setting("telegram_chat_id", "")
+
+    if discord_url:
+        try:
+            _requests.post(discord_url, json={"content": message}, timeout=5)
+            logger.info("Discord alert sent")
+        except Exception as e:
+            logger.warning("Discord broadcast failed: %s", e)
+
+    if tg_token and tg_chat_id:
+        try:
+            _requests.post(
+                f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                json={"chat_id": tg_chat_id, "text": message},
+                timeout=5,
+            )
+            logger.info("Telegram alert sent")
+        except Exception as e:
+            logger.warning("Telegram broadcast failed: %s", e)
+
+
 def check_and_generate_alerts() -> None:
     """
     Evaluate all tracked tickers and macro indicators for alert conditions.
@@ -762,10 +890,12 @@ def check_and_generate_alerts() -> None:
         # Very simple daily alert if we detect a recessionary or stagflationary regime
         if regime in ("Recessionary", "Stagflationary"):
             msg = f"Macro Warning: Environment has shifted to {regime}. Defensive positioning advised."
-            database.insert_alert("", "macro", msg)
+            if database.insert_alert("", "macro", msg):
+                broadcast_alert(msg)
         elif regime == "Risk-On":
             msg = "Macro Update: Environment is Risk-On. Favorable conditions for Equities and Crypto."
-            database.insert_alert("", "macro", msg)
+            if database.insert_alert("", "macro", msg):
+                broadcast_alert(msg)
 
     # 2. Ticker Technical Alerts (RSI & SMA)
     watch_rows = database.get_watchlist()
@@ -778,15 +908,18 @@ def check_and_generate_alerts() -> None:
         rsi = ta_result["indicators"]["rsi"]["value"]
         if rsi < 30:
             msg = f"{ticker} RSI is {rsi:.1f} (Oversold). Potential exhaustion of selling pressure."
-            database.insert_alert(ticker, "rsi", msg)
+            if database.insert_alert(ticker, "rsi", msg):
+                broadcast_alert(msg)
 
         sma_cross = ta_result["indicators"]["sma"]["cross"]
         if sma_cross == "bullish":
             msg = f"{ticker} formed a Bullish SMA Cross (SMA20 > SMA50). Positive momentum."
-            database.insert_alert(ticker, "sma", msg)
+            if database.insert_alert(ticker, "sma", msg):
+                broadcast_alert(msg)
         elif sma_cross == "bearish":
             msg = f"{ticker} formed a Bearish SMA Cross (SMA20 < SMA50). Negative momentum."
-            database.insert_alert(ticker, "sma", msg)
+            if database.insert_alert(ticker, "sma", msg):
+                broadcast_alert(msg)
 
     logger.info("Finished alert evaluation.")
 

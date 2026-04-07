@@ -8,9 +8,13 @@ Functions:
     start_scheduler() -> None: Start APScheduler with all background jobs
     stop_scheduler()  -> None: Shutdown scheduler gracefully on process exit
     run_screener()    -> None: Fetch S&P 100 prices, run TA, save screener scores
+    send_daily_newsletter() -> None: Build and email daily digest to configured recipients
 """
+import email.mime.multipart
+import email.mime.text
 import logging
 import os
+import smtplib
 from datetime import datetime
 from pathlib import Path
 
@@ -207,6 +211,18 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
+    _scheduler.add_job(
+        send_daily_newsletter,
+        trigger="cron",
+        hour=7,
+        minute=0,
+        id="daily_newsletter",
+        name="Daily newsletter digest",
+        max_instances=1,
+        misfire_grace_time=600,
+        replace_existing=True,
+    )
+
     _scheduler.start()
     logger.info(
         "Scheduler started — prices every %d min, indicators every %d min",
@@ -230,6 +246,73 @@ def start_scheduler() -> None:
         id="fetch_indicators_startup",
         name="Initial indicators fetch on startup",
     )
+
+
+def send_daily_newsletter() -> None:
+    """
+    Build and email the daily EconoWatch digest to all configured recipients.
+
+    Reads SMTP settings and newsletter_to from the settings table.
+    Renders email_report.html via jinja2 directly (not Flask render_template)
+    to avoid needing an active Flask app context inside the scheduler.
+    Silently returns if SMTP is not configured.
+    """
+    smtp_host     = database.get_setting("smtp_host", "")
+    smtp_port_str = database.get_setting("smtp_port", "587")
+    smtp_user     = database.get_setting("smtp_user", "")
+    smtp_pass     = database.get_setting("smtp_pass", "")
+    newsletter_to = database.get_setting("newsletter_to", "")
+
+    if not all([smtp_host, smtp_user, smtp_pass, newsletter_to]):
+        logger.debug("Newsletter: SMTP not configured — skipping")
+        return
+
+    try:
+        smtp_port = int(smtp_port_str)
+    except ValueError:
+        smtp_port = 587
+
+    recipients = [r.strip() for r in newsletter_to.split(",") if r.strip()]
+    if not recipients:
+        return
+
+    # Build template context
+    indicators = database.get_indicators()
+    movers     = database.get_top_movers(limit=5)
+    today      = datetime.now().strftime("%B %d, %Y")
+
+    # Render with jinja2 directly — no Flask app context needed
+    try:
+        from jinja2 import Environment, FileSystemLoader
+        template_dir = Path(__file__).parent / "templates"
+        env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+        template = env.get_template("email_report.html")
+        html_body = template.render(
+            date=today,
+            indicators=indicators,
+            gainers=movers.get("gainers", []),
+            losers=movers.get("losers", []),
+        )
+    except Exception as e:
+        logger.error("Newsletter: template render failed: %s", e)
+        return
+
+    # Build MIME message
+    msg = email.mime.multipart.MIMEMultipart("alternative")
+    msg["Subject"] = f"EconoWatch Daily Digest — {today}"
+    msg["From"]    = smtp_user
+    msg["To"]      = ", ".join(recipients)
+    msg.attach(email.mime.text.MIMEText(html_body, "html"))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, recipients, msg.as_string())
+        logger.info("Newsletter sent to %d recipient(s)", len(recipients))
+    except Exception as e:
+        logger.error("Newsletter: SMTP send failed: %s", e)
 
 
 def stop_scheduler() -> None:

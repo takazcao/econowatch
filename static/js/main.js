@@ -24,21 +24,32 @@ const LS_LAST_TICKER = "ew_last_ticker"; // localStorage key
 const LS_ACTIVE_TAB = "ew_active_tab"; // localStorage key
 const LS_CUSTOM_WL = "ew_custom_watchlist"; // localStorage key
 const LS_PORTFOLIO = "ew_portfolio_positions"; // localStorage key
-const PORTFOLIO_COLORS = ["#58a6ff","#3fb950","#ffa657","#f85149","#bc8cff","#f6c343","#26a17b","#e3b341","#79c0ff","#56d364"];
+const PORTFOLIO_COLORS = [
+  "#58a6ff",
+  "#3fb950",
+  "#ffa657",
+  "#f85149",
+  "#bc8cff",
+  "#f6c343",
+  "#26a17b",
+  "#e3b341",
+  "#79c0ff",
+  "#56d364",
+];
 const LS_LAYOUT_PREFIX = "ew_grid_layout_"; // localStorage key prefix for GridStack layouts
 
 // Default GridStack layouts (x, y, w, h in 12-column units, cellHeight=80px)
 const GRID_DEFAULTS = {
   overview: [
-    { id: "chart",   x: 0, y: 0,  w: 8, h: 5 },
-    { id: "price",   x: 8, y: 0,  w: 4, h: 5 },
-    { id: "compare", x: 0, y: 5,  w: 12, h: 4 },
+    { id: "chart", x: 0, y: 0, w: 8, h: 5 },
+    { id: "price", x: 8, y: 0, w: 4, h: 5 },
+    { id: "compare", x: 0, y: 5, w: 12, h: 4 },
   ],
   market: [
-    { id: "btc-dom",    x: 0, y: 0, w: 6, h: 5 },
+    { id: "btc-dom", x: 0, y: 0, w: 6, h: 5 },
     { id: "stablecoin", x: 6, y: 0, w: 6, h: 5 },
-    { id: "gainers",    x: 0, y: 5, w: 6, h: 5 },
-    { id: "losers",     x: 6, y: 5, w: 6, h: 5 },
+    { id: "gainers", x: 0, y: 5, w: 6, h: 5 },
+    { id: "losers", x: 6, y: 5, w: 6, h: 5 },
   ],
 };
 
@@ -46,8 +57,8 @@ const GRID_DEFAULTS = {
 let currentTicker = null;
 let currentPeriod = "1mo";
 let stockChart = null;
-let overlaySeriesObj = null;   // active LightweightCharts LineSeries for FRED overlay
-let currentOverlayId = null;   // active FRED series_id
+let overlaySeriesObj = null; // active LightweightCharts LineSeries for FRED overlay
+let currentOverlayId = null; // active FRED series_id
 let refreshTimer = REFRESH_INTERVAL_SEC;
 let refreshIntervalId = null;
 let watchlistData = []; // [{ticker, name}]
@@ -378,6 +389,7 @@ async function loadChart(ticker, period) {
     updateStarIcon(ticker);
 
     loadAnalysis(ticker, period);
+    loadRadar(ticker);
     loadFundamentals(ticker);
     loadNews(ticker);
     loadRange(ticker);
@@ -388,6 +400,7 @@ async function loadChart(ticker, period) {
     el("chart-title").textContent = "Chart unavailable";
     hide("btn-star-ticker");
     hide("analysis-row");
+    hide("radar-row");
     hide("fundamentals-row");
     hide("news-row");
     hide("range-bar-section");
@@ -468,7 +481,7 @@ function renderChart(data) {
     stockChart.remove();
     stockChart = null;
   }
-  overlaySeriesObj = null;   // series references are invalid after chart.remove()
+  overlaySeriesObj = null; // series references are invalid after chart.remove()
 
   const chartEl = el("tv-chart");
   chartEl.innerHTML = "";
@@ -486,7 +499,7 @@ function renderChart(data) {
     },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor: "#30363d" },
-    leftPriceScale:  { borderColor: "#30363d", visible: false },
+    leftPriceScale: { borderColor: "#30363d", visible: false },
     timeScale: {
       borderColor: "#30363d",
       timeVisible: true,
@@ -644,11 +657,12 @@ async function loadRange(ticker) {
       return;
     }
 
-    el("range-low").textContent  = "$" + fmtNum(data.low_52w);
+    el("range-low").textContent = "$" + fmtNum(data.low_52w);
     el("range-high").textContent = "$" + fmtNum(data.high_52w);
-    el("range-pct-text").textContent = "Currently at " + fmtNum(data.range_pct, 1) + "% of range";
-    el("range-bar-fill").style.width   = data.range_pct + "%";
-    el("range-bar-marker").style.left  = data.range_pct + "%";
+    el("range-pct-text").textContent =
+      "Currently at " + fmtNum(data.range_pct, 1) + "% of range";
+    el("range-bar-fill").style.width = data.range_pct + "%";
+    el("range-bar-marker").style.left = data.range_pct + "%";
 
     show("range-bar-section");
   } catch (e) {
@@ -1051,24 +1065,21 @@ function voteTag(vote) {
 }
 
 function renderAnalysis(d) {
-  const sigClass =
-    d.signal.includes("BUY")
-      ? "signal-buy"
-      : d.signal.includes("SELL")
-        ? "signal-sell"
-        : "signal-hold";
-  const sigIcon =
-    d.signal.includes("BUY")
-      ? "bi-arrow-up-circle-fill"
-      : d.signal.includes("SELL")
-        ? "bi-arrow-down-circle-fill"
-        : "bi-dash-circle-fill";
-  const confColor =
-    d.signal.includes("BUY")
-      ? "#3fb950"
-      : d.signal.includes("SELL")
-        ? "#f85149"
-        : "#d29922";
+  const sigClass = d.signal.includes("BUY")
+    ? "signal-buy"
+    : d.signal.includes("SELL")
+      ? "signal-sell"
+      : "signal-hold";
+  const sigIcon = d.signal.includes("BUY")
+    ? "bi-arrow-up-circle-fill"
+    : d.signal.includes("SELL")
+      ? "bi-arrow-down-circle-fill"
+      : "bi-dash-circle-fill";
+  const confColor = d.signal.includes("BUY")
+    ? "#3fb950"
+    : d.signal.includes("SELL")
+      ? "#f85149"
+      : "#d29922";
 
   const rsiI = d.indicators.rsi;
   const smaI = d.indicators.sma;
@@ -1166,6 +1177,83 @@ function renderAnalysis(d) {
     </div>`;
 
   el("analysis-updated").textContent = "Updated: " + (d.last_updated || "—");
+}
+
+// ── Radar Chart ───────────────────────────────────────
+let _radarChart = null;
+
+async function loadRadar(ticker) {
+  show("radar-row");
+  el("radar-ticker-label").textContent = ticker;
+  show("radar-loading");
+
+  try {
+    const res = await fetch(`/api/radar/${encodeURIComponent(ticker)}`);
+    const data = await res.json();
+
+    if (data.error) {
+      hide("radar-row");
+      return;
+    }
+    renderRadar(data);
+  } catch (e) {
+    hide("radar-row");
+  } finally {
+    hide("radar-loading");
+  }
+}
+
+function renderRadar(d) {
+  const canvas = el("radar-chart");
+  if (!canvas) return;
+
+  if (_radarChart) {
+    _radarChart.destroy();
+    _radarChart = null;
+  }
+
+  _radarChart = new Chart(canvas, {
+    type: "radar",
+    data: {
+      labels: d.labels,
+      datasets: [
+        {
+          label: d.ticker,
+          data: d.scores,
+          backgroundColor: "rgba(88, 166, 255, 0.15)",
+          borderColor: "#58a6ff",
+          borderWidth: 2,
+          pointBackgroundColor: "#58a6ff",
+          pointRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        r: {
+          min: 0,
+          max: 100,
+          ticks: {
+            color: "#8b949e",
+            stepSize: 25,
+            backdropColor: "transparent",
+          },
+          grid: { color: "#21262d" },
+          angleLines: { color: "#30363d" },
+          pointLabels: { color: "#c9d1d9", font: { size: 11 } },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.label}: ${ctx.raw.toFixed(1)}`,
+          },
+        },
+      },
+    },
+  });
 }
 
 // ── News Feed ─────────────────────────────────────────
@@ -1321,7 +1409,11 @@ const COMPARE_COLORS = ["#58a6ff", "#3fb950", "#ffa657"];
 let _compareChart = null;
 
 async function loadCompare(tickerStr, period) {
-  const tickers = tickerStr.toUpperCase().split(",").map(t => t.trim()).filter(Boolean);
+  const tickers = tickerStr
+    .toUpperCase()
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
   if (tickers.length < 2) {
     el("compare-error").textContent = "Enter at least 2 tickers.";
     showBlock("compare-error");
@@ -1360,25 +1452,35 @@ function renderCompareChart(data) {
   chartEl.style.display = "";
 
   // Destroy previous chart
-  if (_compareChart) { _compareChart.remove(); _compareChart = null; }
+  if (_compareChart) {
+    _compareChart.remove();
+    _compareChart = null;
+  }
 
   _compareChart = LightweightCharts.createChart(chartEl, {
-    layout:     { background: { color: "#0d1117" }, textColor: "#8b949e" },
-    grid:       { vertLines: { color: "#21262d" }, horzLines: { color: "#21262d" } },
-    crosshair:  { mode: LightweightCharts.CrosshairMode.Normal },
+    layout: { background: { color: "#0d1117" }, textColor: "#8b949e" },
+    grid: { vertLines: { color: "#21262d" }, horzLines: { color: "#21262d" } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor: "#30363d" },
-    timeScale:  { borderColor: "#30363d", timeVisible: true },
+    timeScale: { borderColor: "#30363d", timeVisible: true },
     handleScroll: true,
-    handleScale:  true,
+    handleScale: true,
   });
 
   const tickers = Object.keys(data.series);
-  const legend  = el("compare-legend");
+  const legend = el("compare-legend");
 
   tickers.forEach((ticker, i) => {
     const color = COMPARE_COLORS[i % COMPARE_COLORS.length];
-    const lineSeries = _compareChart.addLineSeries({ color, lineWidth: 2, title: ticker });
-    const points = data.labels.map((d, idx) => ({ time: d, value: data.series[ticker][idx] }));
+    const lineSeries = _compareChart.addLineSeries({
+      color,
+      lineWidth: 2,
+      title: ticker,
+    });
+    const points = data.labels.map((d, idx) => ({
+      time: d,
+      value: data.series[ticker][idx],
+    }));
     lineSeries.setData(points);
 
     legend.innerHTML +=
@@ -1435,8 +1537,8 @@ async function loadFundamentals(ticker) {
 function fmtLargeNum(n) {
   if (n == null) return "—";
   if (Math.abs(n) >= 1e12) return "$" + (n / 1e12).toFixed(2) + "T";
-  if (Math.abs(n) >= 1e9)  return "$" + (n / 1e9).toFixed(2) + "B";
-  if (Math.abs(n) >= 1e6)  return "$" + (n / 1e6).toFixed(2) + "M";
+  if (Math.abs(n) >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+  if (Math.abs(n) >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
   return "$" + n.toLocaleString();
 }
 
@@ -1449,8 +1551,8 @@ function fundRow(label, value) {
 }
 
 function renderFundamentals(d) {
-  const pct = (v) => v != null ? v + "%" : "—";
-  const num = (v, dec=2) => v != null ? fmtNum(v, dec) : "—";
+  const pct = (v) => (v != null ? v + "%" : "—");
+  const num = (v, dec = 2) => (v != null ? fmtNum(v, dec) : "—");
 
   el("fundamentals-body").innerHTML = `
     <div class="row g-3 mb-3">
@@ -1458,24 +1560,24 @@ function renderFundamentals(d) {
       <div class="col-12 col-md-4">
         <div class="p-3 rounded h-100" style="background:#0d1117;border:1px solid #30363d;">
           <div class="text-muted mb-2" style="font-size:1rem;text-transform:uppercase;letter-spacing:0.05em;">Company</div>
-          ${fundRow("Sector",    d.sector)}
-          ${fundRow("Industry",  d.industry)}
+          ${fundRow("Sector", d.sector)}
+          ${fundRow("Industry", d.industry)}
           ${fundRow("Employees", d.employees != null ? Number(d.employees).toLocaleString() : "—")}
           ${fundRow("Market Cap", fmtLargeNum(d.market_cap))}
           ${fundRow("Enterprise Value", fmtLargeNum(d.enterprise_value))}
           ${fundRow("52W High", d.week_52_high != null ? "$" + num(d.week_52_high) : "—")}
-          ${fundRow("52W Low",  d.week_52_low  != null ? "$" + num(d.week_52_low)  : "—")}
+          ${fundRow("52W Low", d.week_52_low != null ? "$" + num(d.week_52_low) : "—")}
         </div>
       </div>
       <!-- Valuation -->
       <div class="col-12 col-md-4">
         <div class="p-3 rounded h-100" style="background:#0d1117;border:1px solid #30363d;">
           <div class="text-muted mb-2" style="font-size:1rem;text-transform:uppercase;letter-spacing:0.05em;">Valuation</div>
-          ${fundRow("Trailing P/E",  num(d.trailing_pe))}
-          ${fundRow("Forward P/E",   num(d.forward_pe))}
-          ${fundRow("Price / Book",  num(d.price_to_book))}
-          ${fundRow("Trailing EPS",  d.trailing_eps != null ? "$" + num(d.trailing_eps) : "—")}
-          ${fundRow("Forward EPS",   d.forward_eps  != null ? "$" + num(d.forward_eps)  : "—")}
+          ${fundRow("Trailing P/E", num(d.trailing_pe))}
+          ${fundRow("Forward P/E", num(d.forward_pe))}
+          ${fundRow("Price / Book", num(d.price_to_book))}
+          ${fundRow("Trailing EPS", d.trailing_eps != null ? "$" + num(d.trailing_eps) : "—")}
+          ${fundRow("Forward EPS", d.forward_eps != null ? "$" + num(d.forward_eps) : "—")}
           ${fundRow("Next Earnings", d.next_earnings_date || "—")}
         </div>
       </div>
@@ -1483,16 +1585,16 @@ function renderFundamentals(d) {
       <div class="col-12 col-md-4">
         <div class="p-3 rounded h-100" style="background:#0d1117;border:1px solid #30363d;">
           <div class="text-muted mb-2" style="font-size:1rem;text-transform:uppercase;letter-spacing:0.05em;">Financials</div>
-          ${fundRow("Profit Margin",    pct(d.profit_margin))}
+          ${fundRow("Profit Margin", pct(d.profit_margin))}
           ${fundRow("Operating Margin", pct(d.operating_margin))}
-          ${fundRow("ROE",              pct(d.roe))}
-          ${fundRow("ROA",              pct(d.roa))}
-          ${fundRow("Revenue Growth",   pct(d.revenue_growth))}
-          ${fundRow("Earnings Growth",  pct(d.earnings_growth))}
-          ${fundRow("Debt / Equity",    num(d.debt_to_equity))}
-          ${fundRow("Free Cash Flow",   fmtLargeNum(d.free_cashflow))}
-          ${fundRow("Dividend Yield",   pct(d.dividend_yield))}
-          ${fundRow("Annual Dividend",  d.dividend_rate != null ? "$" + num(d.dividend_rate) : "—")}
+          ${fundRow("ROE", pct(d.roe))}
+          ${fundRow("ROA", pct(d.roa))}
+          ${fundRow("Revenue Growth", pct(d.revenue_growth))}
+          ${fundRow("Earnings Growth", pct(d.earnings_growth))}
+          ${fundRow("Debt / Equity", num(d.debt_to_equity))}
+          ${fundRow("Free Cash Flow", fmtLargeNum(d.free_cashflow))}
+          ${fundRow("Dividend Yield", pct(d.dividend_yield))}
+          ${fundRow("Annual Dividend", d.dividend_rate != null ? "$" + num(d.dividend_rate) : "—")}
         </div>
       </div>
     </div>`;
@@ -1633,17 +1735,28 @@ let screenerTable = null;
 let screenerLoaded = false;
 let screenerEs = null; // active EventSource
 
-const _scoreColor = (s) => s >= 8 ? "#3fb950" : s >= 6 ? "#58a6ff" : s <= 2 ? "#f85149" : s <= 4 ? "#e3b341" : "#8b949e";
-const _macdBadge  = (m) => m === "buy"
-  ? `<span class="badge" style="background:#3fb950;color:#000">buy</span>`
-  : m === "sell"
-  ? `<span class="badge" style="background:#f85149">sell</span>`
-  : `<span class="badge bg-secondary">neutral</span>`;
-const _smaBadge   = (s) => s === "golden_cross"
-  ? `<span class="badge" style="background:#f6c343;color:#000">golden ✕</span>`
-  : s === "death_cross"
-  ? `<span class="badge" style="background:#f85149">death ✕</span>`
-  : `<span class="badge bg-secondary">neutral</span>`;
+const _scoreColor = (s) =>
+  s >= 8
+    ? "#3fb950"
+    : s >= 6
+      ? "#58a6ff"
+      : s <= 2
+        ? "#f85149"
+        : s <= 4
+          ? "#e3b341"
+          : "#8b949e";
+const _macdBadge = (m) =>
+  m === "buy"
+    ? `<span class="badge" style="background:#3fb950;color:#000">buy</span>`
+    : m === "sell"
+      ? `<span class="badge" style="background:#f85149">sell</span>`
+      : `<span class="badge bg-secondary">neutral</span>`;
+const _smaBadge = (s) =>
+  s === "golden_cross"
+    ? `<span class="badge" style="background:#f6c343;color:#000">golden ✕</span>`
+    : s === "death_cross"
+      ? `<span class="badge" style="background:#f85149">death ✕</span>`
+      : `<span class="badge bg-secondary">neutral</span>`;
 
 function _buildScreenerRow(r) {
   return `<tr style="cursor:pointer" data-ticker="${escHtml(r.ticker)}">
@@ -1658,26 +1771,36 @@ function _buildScreenerRow(r) {
 }
 
 function _initScreenerTable() {
-  if (screenerTable) { screenerTable.destroy(); screenerTable = null; }
+  if (screenerTable) {
+    screenerTable.destroy();
+    screenerTable = null;
+  }
   screenerTable = $("#screener-dt").DataTable({
-    order:      [[2, "desc"]],
+    order: [[2, "desc"]],
     pageLength: 25,
-    language:   { search: "Filter:", lengthMenu: "Show _MENU_" },
+    language: { search: "Filter:", lengthMenu: "Show _MENU_" },
   });
   // Row click → load ticker
-  document.querySelectorAll("#screener-tbody tr[data-ticker]").forEach((row) => {
-    row.addEventListener("click", () => {
-      const t = row.dataset.ticker;
-      if (t) { loadChart(t, currentPeriod); }
+  document
+    .querySelectorAll("#screener-tbody tr[data-ticker]")
+    .forEach((row) => {
+      row.addEventListener("click", () => {
+        const t = row.dataset.ticker;
+        if (t) {
+          loadChart(t, currentPeriod);
+        }
+      });
     });
-  });
 }
 
 function _screenerReady() {
   const loading = el("screener-loading");
   const scanBtn = el("screener-scan-btn");
   if (loading) loading.style.display = "none";
-  if (scanBtn) { scanBtn.disabled = false; scanBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Scan Now'; }
+  if (scanBtn) {
+    scanBtn.disabled = false;
+    scanBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Scan Now';
+  }
   screenerLoaded = true;
 }
 
@@ -1685,44 +1808,59 @@ function loadScreener(force = false) {
   if (screenerLoaded && !force) return;
 
   // Cancel any in-progress stream
-  if (screenerEs) { screenerEs.close(); screenerEs = null; }
+  if (screenerEs) {
+    screenerEs.close();
+    screenerEs = null;
+  }
 
   const loading = el("screener-loading");
-  const errEl   = el("screener-error");
-  const tbody   = el("screener-tbody");
+  const errEl = el("screener-error");
+  const tbody = el("screener-tbody");
   const countEl = el("screener-count");
   const scanBtn = el("screener-scan-btn");
 
-  if (errEl)   errEl.style.display = "none";
+  if (errEl) errEl.style.display = "none";
   if (loading) loading.style.display = "";
-  if (scanBtn) { scanBtn.disabled = true; scanBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Scanning…'; }
+  if (scanBtn) {
+    scanBtn.disabled = true;
+    scanBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Scanning…';
+  }
 
   // If not forcing, try the cache first
   if (!force) {
-    fetch("/api/screener").then((r) => r.json()).then((data) => {
-      if (data.results && data.results.length >= 10) {
-        // Render from cache instantly
-        if (screenerTable) { screenerTable.destroy(); screenerTable = null; }
-        tbody.innerHTML = data.results.map(_buildScreenerRow).join("");
-        _initScreenerTable();
-        if (countEl) countEl.textContent = `(${data.results.length} tickers)`;
-        const scannedEl = el("screener-scanned");
-        const scannedAt = el("screener-scanned-at");
-        if (data.scanned_at && scannedEl && scannedAt) {
-          scannedAt.textContent = data.scanned_at;
-          scannedEl.style.display = "";
+    fetch("/api/screener")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.results && data.results.length >= 10) {
+          // Render from cache instantly
+          if (screenerTable) {
+            screenerTable.destroy();
+            screenerTable = null;
+          }
+          tbody.innerHTML = data.results.map(_buildScreenerRow).join("");
+          _initScreenerTable();
+          if (countEl) countEl.textContent = `(${data.results.length} tickers)`;
+          const scannedEl = el("screener-scanned");
+          const scannedAt = el("screener-scanned-at");
+          if (data.scanned_at && scannedEl && scannedAt) {
+            scannedAt.textContent = data.scanned_at;
+            scannedEl.style.display = "";
+          }
+          _screenerReady();
+          return;
         }
-        _screenerReady();
-        return;
-      }
-      // Not enough cached data — fall through to SSE scan
-      _startScreenerStream(tbody, countEl, errEl);
-    }).catch(() => _startScreenerStream(tbody, countEl, errEl));
+        // Not enough cached data — fall through to SSE scan
+        _startScreenerStream(tbody, countEl, errEl);
+      })
+      .catch(() => _startScreenerStream(tbody, countEl, errEl));
     return;
   }
 
   // Force refresh — clear table and stream fresh
-  if (screenerTable) { screenerTable.destroy(); screenerTable = null; }
+  if (screenerTable) {
+    screenerTable.destroy();
+    screenerTable = null;
+  }
   tbody.innerHTML = "";
   _startScreenerStream(tbody, countEl, errEl);
 }
@@ -1737,14 +1875,11 @@ function _startScreenerStream(tbody, countEl, errEl) {
 
     if (msg.status === "downloading") {
       if (countEl) countEl.textContent = "Downloading 100 tickers…";
-
     } else if (msg.status === "analyzing") {
       if (countEl) countEl.textContent = `Prices ready — running analysis…`;
-
     } else if (msg.status === "row") {
       tbody.insertAdjacentHTML("beforeend", _buildScreenerRow(msg));
       if (countEl) countEl.textContent = `Scanning… ${msg.processed} / 100`;
-
     } else if (msg.status === "done") {
       screenerEs.close();
       screenerEs = null;
@@ -1763,7 +1898,10 @@ function _startScreenerStream(tbody, countEl, errEl) {
   screenerEs.onerror = () => {
     screenerEs.close();
     screenerEs = null;
-    if (errEl) { errEl.textContent = "Stream connection lost. Try Scan Now."; errEl.style.display = ""; }
+    if (errEl) {
+      errEl.textContent = "Stream connection lost. Try Scan Now.";
+      errEl.style.display = "";
+    }
     _screenerReady();
   };
 }
@@ -1772,7 +1910,9 @@ function _startScreenerStream(tbody, countEl, errEl) {
 function getPortfolioPositions() {
   try {
     return JSON.parse(localStorage.getItem(LS_PORTFOLIO) || "[]");
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function savePortfolioPositions(positions) {
@@ -1797,7 +1937,9 @@ async function loadPortfolio() {
 
   try {
     const tickers = positions.map((p) => p.ticker).join(",");
-    const res = await fetch(`/api/portfolio/prices?tickers=${encodeURIComponent(tickers)}`);
+    const res = await fetch(
+      `/api/portfolio/prices?tickers=${encodeURIComponent(tickers)}`
+    );
     const data = await res.json();
     hide("port-loading");
 
@@ -1825,14 +1967,21 @@ function _renderPortfolio(positions, prices) {
     const invested = p.shares * p.avg_price;
     const marketValue = currentPrice != null ? p.shares * currentPrice : null;
     const pnlDollar = marketValue != null ? marketValue - invested : null;
-    const pnlPct = pnlDollar != null && invested ? (pnlDollar / invested) * 100 : null;
+    const pnlPct =
+      pnlDollar != null && invested ? (pnlDollar / invested) * 100 : null;
 
     totalInvested += invested;
     if (marketValue != null) totalValue += marketValue;
 
-    rows.push({ ticker: p.ticker, shares: p.shares, avg_price: p.avg_price,
-      current: currentPrice, market_value: marketValue,
-      pnl_dollar: pnlDollar, pnl_pct: pnlPct });
+    rows.push({
+      ticker: p.ticker,
+      shares: p.shares,
+      avg_price: p.avg_price,
+      current: currentPrice,
+      market_value: marketValue,
+      pnl_dollar: pnlDollar,
+      pnl_pct: pnlPct,
+    });
   });
 
   const totalPnl = totalValue - totalInvested;
@@ -1847,11 +1996,21 @@ function _renderPortfolio(positions, prices) {
   el("port-count").textContent = positions.length;
   show("portfolio-summary");
 
-  el("port-tbody").innerHTML = rows.map((r) => {
-    const rc = r.pnl_dollar == null ? "" : r.pnl_dollar > 0 ? "trend-up" : r.pnl_dollar < 0 ? "trend-down" : "";
-    const rs = r.pnl_dollar != null && r.pnl_dollar > 0 ? "+" : "";
-    const sharesStr = Number(r.shares).toLocaleString("en-US", { maximumFractionDigits: 4 });
-    return `<tr>
+  el("port-tbody").innerHTML = rows
+    .map((r) => {
+      const rc =
+        r.pnl_dollar == null
+          ? ""
+          : r.pnl_dollar > 0
+            ? "trend-up"
+            : r.pnl_dollar < 0
+              ? "trend-down"
+              : "";
+      const rs = r.pnl_dollar != null && r.pnl_dollar > 0 ? "+" : "";
+      const sharesStr = Number(r.shares).toLocaleString("en-US", {
+        maximumFractionDigits: 4,
+      });
+      return `<tr>
       <td class="fw-bold" style="color:#58a6ff;cursor:pointer;" data-action="load" data-ticker="${escHtml(r.ticker)}">${escHtml(r.ticker)}</td>
       <td class="text-end">${sharesStr}</td>
       <td class="text-end">$${fmtNum(r.avg_price)}</td>
@@ -1866,7 +2025,8 @@ function _renderPortfolio(positions, prices) {
         </button>
       </td>
     </tr>`;
-  }).join("");
+    })
+    .join("");
 
   show("port-table-row");
   _renderPortfolioDonut(rows);
@@ -1877,7 +2037,9 @@ function _renderPortfolioDonut(rows) {
   const legendEl = el("portfolio-donut-legend");
   if (!svgEl) return;
 
-  const withVal = rows.filter((r) => r.market_value != null && r.market_value > 0);
+  const withVal = rows.filter(
+    (r) => r.market_value != null && r.market_value > 0
+  );
   if (withVal.length === 0) {
     svgEl.innerHTML = "";
     if (legendEl) legendEl.innerHTML = "";
@@ -1885,19 +2047,24 @@ function _renderPortfolioDonut(rows) {
   }
 
   const totalMv = withVal.reduce((s, r) => s + r.market_value, 0) || 1;
-  const vals   = withVal.map((r) => Math.round((r.market_value / totalMv) * 100));
-  const colors = withVal.map((_, i) => PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]);
+  const vals = withVal.map((r) => Math.round((r.market_value / totalMv) * 100));
+  const colors = withVal.map(
+    (_, i) => PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]
+  );
   const labels = withVal.map((r) => r.ticker);
 
   renderFlowDonut(svgEl, vals, colors, labels);
 
   if (legendEl) {
-    legendEl.innerHTML = withVal.map((r, i) =>
-      `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;">
+    legendEl.innerHTML = withVal
+      .map(
+        (r, i) =>
+          `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;">
         <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[i]};"></span>
         <span style="color:${colors[i]};font-weight:600;">${escHtml(r.ticker)}</span>
       </span>`
-    ).join("");
+      )
+      .join("");
   }
 }
 
@@ -1911,7 +2078,8 @@ async function addPosition(ticker, qty, avgPrice, txType) {
   }
   qty = parseFloat(qty);
   if (isNaN(qty) || qty <= 0) {
-    feedbackEl.innerHTML = '<span class="error-msg">Quantity must be greater than 0.</span>';
+    feedbackEl.innerHTML =
+      '<span class="error-msg">Quantity must be greater than 0.</span>';
     return;
   }
 
@@ -1919,12 +2087,14 @@ async function addPosition(ticker, qty, avgPrice, txType) {
   if (txType === "buy") {
     avgPrice = parseFloat(avgPrice);
     if (isNaN(avgPrice) || avgPrice <= 0) {
-      feedbackEl.innerHTML = '<span class="error-msg">Avg buy price must be greater than 0.</span>';
+      feedbackEl.innerHTML =
+        '<span class="error-msg">Avg buy price must be greater than 0.</span>';
       return;
     }
   }
 
-  feedbackEl.innerHTML = '<span class="loading-spinner me-1" style="display:inline-block;"></span> Validating…';
+  feedbackEl.innerHTML =
+    '<span class="loading-spinner me-1" style="display:inline-block;"></span> Validating…';
   const addBtn = el("port-add-btn");
   if (addBtn) addBtn.disabled = true;
 
@@ -1940,8 +2110,7 @@ async function addPosition(ticker, qty, avgPrice, txType) {
       }
       const held = positions[idx].shares;
       if (qty > held + 0.00001) {
-        feedbackEl.innerHTML =
-          `<span class="error-msg">You only hold ${held.toLocaleString("en-US", {maximumFractionDigits:4})} — can't sell ${qty}.</span>`;
+        feedbackEl.innerHTML = `<span class="error-msg">You only hold ${held.toLocaleString("en-US", { maximumFractionDigits: 4 })} — can't sell ${qty}.</span>`;
         return;
       }
       const remaining = parseFloat((held - qty).toFixed(4));
@@ -1952,7 +2121,6 @@ async function addPosition(ticker, qty, avgPrice, txType) {
       }
       savePortfolioPositions(positions);
       feedbackEl.innerHTML = `<span style="color:#f85149;">&#10003; Sold ${qty} ${escHtml(ticker)}.</span>`;
-
     } else {
       // Buy: validate ticker via API first
       const res = await fetch(`/api/search?q=${encodeURIComponent(ticker)}`);
@@ -1971,7 +2139,11 @@ async function addPosition(ticker, qty, avgPrice, txType) {
         );
         positions[idx].shares = parseFloat(newQty.toFixed(4));
       } else {
-        positions.push({ ticker, shares: parseFloat(qty.toFixed(4)), avg_price: parseFloat(avgPrice.toFixed(4)) });
+        positions.push({
+          ticker,
+          shares: parseFloat(qty.toFixed(4)),
+          avg_price: parseFloat(avgPrice.toFixed(4)),
+        });
       }
       savePortfolioPositions(positions);
       feedbackEl.innerHTML = `<span style="color:#3fb950;">&#10003; Bought ${qty} ${escHtml(ticker)}.</span>`;
@@ -1982,7 +2154,8 @@ async function addPosition(ticker, qty, avgPrice, txType) {
     el("port-price-input").value = "";
     await loadPortfolio();
   } catch (e) {
-    feedbackEl.innerHTML = '<span class="error-msg">Action failed. Try again.</span>';
+    feedbackEl.innerHTML =
+      '<span class="error-msg">Action failed. Try again.</span>';
   } finally {
     if (addBtn) addBtn.disabled = false;
   }
@@ -2001,7 +2174,9 @@ async function _applyOverlay(seriesId) {
 
   // Remove existing overlay series first
   if (overlaySeriesObj) {
-    try { stockChart.removeSeries(overlaySeriesObj); } catch (_) {}
+    try {
+      stockChart.removeSeries(overlaySeriesObj);
+    } catch (_) {}
     overlaySeriesObj = null;
   }
 
@@ -2012,15 +2187,17 @@ async function _applyOverlay(seriesId) {
     if (!json.data || !json.data.length) return;
 
     // Show left axis for the overlay
-    stockChart.applyOptions({ leftPriceScale: { visible: true, borderColor: "#ffa657" } });
+    stockChart.applyOptions({
+      leftPriceScale: { visible: true, borderColor: "#ffa657" },
+    });
 
     const line = stockChart.addLineSeries({
-      color:           "#ffa657",
-      lineWidth:       1,
-      priceScaleId:    "left",
+      color: "#ffa657",
+      lineWidth: 1,
+      priceScaleId: "left",
       lastValueVisible: true,
       priceLineVisible: false,
-      title:           json.name,
+      title: json.name,
     });
     line.setData(json.data);
     overlaySeriesObj = line;
@@ -2031,7 +2208,9 @@ async function _applyOverlay(seriesId) {
 
 function clearOverlay() {
   if (overlaySeriesObj && stockChart) {
-    try { stockChart.removeSeries(overlaySeriesObj); } catch (_) {}
+    try {
+      stockChart.removeSeries(overlaySeriesObj);
+    } catch (_) {}
     overlaySeriesObj = null;
   }
   if (stockChart) {
@@ -2053,7 +2232,9 @@ function clearOverlay() {
 function _initGrid(tabId) {
   if (_grids[tabId]) {
     // Already initialized — just trigger a resize recalculation.
-    try { _grids[tabId].onParentResize(); } catch (_) {}
+    try {
+      _grids[tabId].onParentResize();
+    } catch (_) {}
     return;
   }
   const gridEl = el("gs-" + tabId);
@@ -2109,7 +2290,15 @@ function resetAllLayouts() {
 }
 
 // ── Tab Switching ─────────────────────────────────────
-const TAB_IDS = ["overview", "technical", "macro", "market", "fundamentals", "screener", "portfolio"];
+const TAB_IDS = [
+  "overview",
+  "technical",
+  "macro",
+  "market",
+  "fundamentals",
+  "screener",
+  "portfolio",
+];
 
 function switchTab(tabName) {
   if (!TAB_IDS.includes(tabName)) tabName = "overview";
@@ -2156,27 +2345,29 @@ document.addEventListener("DOMContentLoaded", () => {
     return el("port-tx-sell") && el("port-tx-sell").checked ? "sell" : "buy";
   }
   function _updatePortToggleUI(type) {
-    const btn  = el("port-add-btn");
+    const btn = el("port-add-btn");
     const icon = el("port-btn-icon");
-    const lbl  = el("port-btn-label");
+    const lbl = el("port-btn-label");
     const priceCol = el("port-price-col");
     if (!btn) return;
     if (type === "sell") {
-      btn.className  = "btn btn-danger w-100";
+      btn.className = "btn btn-danger w-100";
       icon.className = "bi bi-dash-circle me-1";
       lbl.textContent = "Sell";
       if (priceCol) priceCol.style.visibility = "hidden";
     } else {
-      btn.className  = "btn btn-success w-100";
+      btn.className = "btn btn-success w-100";
       icon.className = "bi bi-plus me-1";
       lbl.textContent = "Buy";
       if (priceCol) priceCol.style.visibility = "";
     }
   }
-  const portTxBuy  = el("port-tx-buy");
+  const portTxBuy = el("port-tx-buy");
   const portTxSell = el("port-tx-sell");
-  if (portTxBuy)  portTxBuy.addEventListener("change",  () => _updatePortToggleUI("buy"));
-  if (portTxSell) portTxSell.addEventListener("change", () => _updatePortToggleUI("sell"));
+  if (portTxBuy)
+    portTxBuy.addEventListener("change", () => _updatePortToggleUI("buy"));
+  if (portTxSell)
+    portTxSell.addEventListener("change", () => _updatePortToggleUI("sell"));
 
   // Portfolio: Add/Sell button
   const portAddBtn = el("port-add-btn");
@@ -2196,7 +2387,11 @@ document.addEventListener("DOMContentLoaded", () => {
     portTickerInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         const sharesEl = el("port-shares-input");
-        if (sharesEl && !sharesEl.value) { sharesEl.focus(); } else { portAddBtn && portAddBtn.click(); }
+        if (sharesEl && !sharesEl.value) {
+          sharesEl.focus();
+        } else {
+          portAddBtn && portAddBtn.click();
+        }
       }
     });
   }
@@ -2205,9 +2400,14 @@ document.addEventListener("DOMContentLoaded", () => {
   if (portTbody) {
     portTbody.addEventListener("click", (e) => {
       const removeBtn = e.target.closest("[data-action='remove']");
-      if (removeBtn) { removePosition(removeBtn.dataset.ticker); return; }
+      if (removeBtn) {
+        removePosition(removeBtn.dataset.ticker);
+        return;
+      }
       const loadCell = e.target.closest("[data-action='load']");
-      if (loadCell) { loadChart(loadCell.dataset.ticker, currentPeriod); }
+      if (loadCell) {
+        loadChart(loadCell.dataset.ticker, currentPeriod);
+      }
     });
   }
 

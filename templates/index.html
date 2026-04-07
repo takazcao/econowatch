@@ -17,6 +17,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/print.css') }}" media="print" />
   </head>
   <body>
     <!-- ── Navbar ─────────────────────────────────────── -->
@@ -39,6 +40,26 @@
         >
           <i class="bi bi-grid-3x3-gap"></i> Reset Layout
         </button>
+        <!-- Print Report -->
+        <button
+          id="print-report-btn"
+          class="btn btn-sm d-none d-md-inline-flex align-items-center gap-1"
+          style="color: #8b949e; border: 1px solid #30363d; background: transparent; font-size: 0.75rem;"
+          title="Print dashboard report"
+          onclick="window.print()"
+        >
+          <i class="bi bi-printer"></i> Print Report
+        </button>
+        <!-- Settings -->
+        <a
+          href="/settings"
+          class="btn btn-sm p-1"
+          style="color: #8b949e; border: none; background: transparent"
+          title="Settings{% if not pro_unlocked %} — Pro features available{% endif %}"
+        >
+          <i class="bi bi-gear" style="font-size: 1.1rem"></i>
+          {% if not pro_unlocked %}<i class="bi bi-lock-fill" style="font-size: 0.6rem; color: #f78166; vertical-align: super"></i>{% endif %}
+        </a>
         <!-- Notification Bell -->
         <button
           id="alerts-btn"
@@ -428,6 +449,25 @@
                   <p class="mt-2 mb-0" style="font-size: 1rem">
                     Select a ticker on the Overview tab to load analysis
                   </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Radar Chart -->
+        <div class="row mb-3 g-3" id="radar-row" style="display:none">
+          <div class="col-12 col-lg-5">
+            <div class="card h-100">
+              <div class="card-header d-flex align-items-center">
+                <i class="bi bi-radar me-2"></i> Signal Radar
+                <span id="radar-ticker-label" class="ms-2 fw-bold" style="color: #58a6ff"></span>
+                <span id="radar-loading" class="loading-spinner ms-2" style="display:none"></span>
+              </div>
+              <div class="card-body d-flex align-items-center justify-content-center" style="min-height:260px">
+                <canvas id="radar-chart" style="max-width:320px; max-height:320px"></canvas>
+                <div id="radar-placeholder" class="text-muted text-center" style="display:none">
+                  <i class="bi bi-radar" style="font-size:2rem; opacity:0.2"></i>
+                  <p class="mt-2 mb-0" style="font-size:1rem">No radar data</p>
                 </div>
               </div>
             </div>
@@ -1134,6 +1174,8 @@
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script>window.EW_PRO_UNLOCKED = {{ pro_unlocked | tojson }};</script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
       /* All dashboard logic lives in static/js/main.js */

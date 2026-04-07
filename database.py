@@ -19,6 +19,8 @@ Functions:
     mark_alerts_read() -> bool: Mark all alerts as read
     upsert_screener_row(ticker, name, bullish_score, rsi, macd_signal, sma_signal, close) -> bool: Upsert one screener row
     get_screener_results() -> list[dict]: Return all screener rows ordered by bullish_score DESC
+    get_setting(key, default) -> str: Return settings value or default if key not set
+    set_setting(key, value) -> bool: Upsert a settings key/value pair
 """
 import logging
 import os
@@ -122,6 +124,14 @@ def init_db() -> None:
                 close         REAL,
                 scanned_at    TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(ticker)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL DEFAULT '',
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -549,6 +559,59 @@ def get_screener_results() -> list:
     except Exception as e:
         logger.error("Failed to get screener results: %s", e)
         return []
+
+
+def get_setting(key: str, default: str = "") -> str:
+    """
+    Return the value for a settings key, or default if the key is not set.
+
+    Args:
+        key: The settings key name.
+        default: Value to return if key is missing. Defaults to "".
+
+    Returns:
+        The stored value string, or default.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+        return row["value"] if row else default
+    except Exception as e:
+        logger.error("Failed to get setting %s: %s", key, e)
+        return default
+
+
+def set_setting(key: str, value: str) -> bool:
+    """
+    Upsert a settings key/value pair.
+
+    Args:
+        key: The settings key name.
+        value: The value to store (always stored as a string).
+
+    Returns:
+        True if successful, False on failure.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO settings (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (key, value),
+            )
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("Failed to set setting %s: %s", key, e)
+        return False
 
 
 if __name__ == "__main__":

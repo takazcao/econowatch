@@ -22,18 +22,23 @@ Functions:
     portfolio_prices() -> Response: Return latest close price for a list of tickers as JSON
     get_range(ticker) -> Response: Return 52-week high, low, current price and range position as JSON
     get_ai_summary() -> Response: Return AI-generated 2-3 sentence macro regime summary as JSON
+    get_radar(ticker) -> Response: Return 6-dimension radar scores for a ticker as JSON
+    ai_chat() -> Response: AI assistant response for the current ticker context (Pro only)
+    settings_page() -> Response: Render settings page (GET) or save settings (POST)
 """
 import atexit
+import functools
 import json
 import logging
 import os
+import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
 import csv
 import io
-from flask import Flask, Response, jsonify, redirect, render_template, request, session, stream_with_context, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, session, stream_with_context, url_for
 
 import analysis
 import cache as _cache_module
@@ -80,6 +85,18 @@ PERIOD_TO_YFINANCE = {
     "6mo": "6mo",
     "1y":  "1y",
 }
+
+LICENSE_VALIDATION_URL = os.getenv("LICENSE_VALIDATION_URL", "")
+
+SETTINGS_KEYS = [
+    "license_key", "logo_url", "brand_color",
+    "polygon_api_key", "finnhub_api_key",
+    "discord_webhook_url", "telegram_bot_token", "telegram_chat_id",
+    "smtp_host", "smtp_port", "smtp_user", "smtp_pass", "newsletter_to",
+]
+
+# Sensitive keys — only write to DB when the submitted value is non-empty
+SETTINGS_SENSITIVE = {"polygon_api_key", "finnhub_api_key", "telegram_bot_token", "smtp_pass"}
 
 logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -179,7 +196,7 @@ def _is_valid_ticker_format(ticker: str) -> bool:
 @app.route("/")
 def index():
     """Route: GET / — Serve the dashboard HTML page."""
-    return render_template("index.html")
+    return render_template("index.html", pro_unlocked=_is_pro_unlocked())
 
 
 @app.route("/api/stock/<string:ticker>")
@@ -782,6 +799,216 @@ def get_status():
         logger.error("Error fetching status: %s", e)
 
     return jsonify({"status": "ok", "last_updated": last_updated}), 200
+
+
+# ── License + Pro Helpers ────────────────────────────
+
+def _validate_license_key(key: str) -> bool:
+    """
+    Validate a license key against the payment provider API.
+
+    POSTs to LICENSE_VALIDATION_URL with {"key": key, "product": "econowatch"}.
+    On success, caches result in settings table for 24 hours.
+    Falls back to the cached license_valid DB value if the network call fails.
+
+    Args:
+        key: The license key string to validate.
+
+    Returns:
+        True if the license is valid, False otherwise.
+    """
+    import requests as _requests
+
+    # Check 24-hour cache first
+    cached_valid = database.get_setting("license_valid", "")
+    cached_at_str = database.get_setting("license_checked_at", "")
+    if cached_valid and cached_at_str:
+        try:
+            checked_at = datetime.strptime(cached_at_str, "%Y-%m-%d %H:%M:%S")
+            if datetime.now() - checked_at < timedelta(hours=24):
+                return cached_valid == "1"
+        except ValueError:
+            pass
+
+    if not LICENSE_VALIDATION_URL or not key:
+        return False
+
+    try:
+        resp = _requests.post(
+            LICENSE_VALIDATION_URL,
+            json={"key": key, "product": "econowatch"},
+            timeout=5,
+        )
+        valid = resp.status_code == 200 and resp.json().get("valid", False)
+    except Exception as e:
+        logger.warning("License validation network error — using cached value: %s", e)
+        return cached_valid == "1"
+
+    database.set_setting("license_valid", "1" if valid else "0")
+    database.set_setting("license_checked_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    return valid
+
+
+def _is_pro_unlocked() -> bool:
+    """Return True if a valid Pro license is active (always True in dev mode)."""
+    if FLASK_DEBUG:
+        return True
+    return database.get_setting("license_valid", "0") == "1"
+
+
+def requires_pro_license(f):
+    """
+    Flask route decorator that returns 403 if no valid Pro license is active.
+
+    In dev mode (FLASK_DEBUG=True) this is a no-op — all routes pass through.
+    """
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if FLASK_DEBUG:
+            return f(*args, **kwargs)
+        if not _is_pro_unlocked():
+            return jsonify({"error": "Pro license required"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ── CSRF Helpers ─────────────────────────────────────
+
+def _generate_csrf_token() -> str:
+    """Generate and store a CSRF token in the session, returning the token."""
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_hex(32)
+    return session["_csrf_token"]
+
+
+def _validate_csrf() -> bool:
+    """Return True if the submitted _csrf_token matches the session token."""
+    return request.form.get("_csrf_token") == session.get("_csrf_token")
+
+
+# ── Radar Route ──────────────────────────────────────
+
+@app.route("/api/radar/<string:ticker>")
+def get_radar(ticker: str):
+    """Route: GET /api/radar/<ticker> — Return 6-dimension radar scores for a ticker."""
+    ticker = ticker.upper()
+
+    if not _is_valid_ticker_format(ticker):
+        return jsonify({"error": "Invalid ticker format"}), 400
+
+    if _is_stale(ticker):
+        scraper.fetch_stock_prices(ticker, "1y")
+
+    result = analysis.get_radar_data(ticker)
+    if not result:
+        return jsonify({"error": "Not enough data for radar analysis"}), 404
+
+    return jsonify(result), 200
+
+
+# ── AI Chat Route ────────────────────────────────────
+
+@app.route("/api/chat", methods=["POST"])
+@requires_pro_license
+def ai_chat():
+    """
+    Route: POST /api/chat — AI assistant response in context of the current ticker (Pro only).
+
+    Body JSON:
+        message: str — the user's question
+        ticker:  str — current ticker symbol (context)
+        history: list[{role, content}] — prior conversation turns (max 10)
+    """
+    body    = request.get_json(silent=True) or {}
+    message = str(body.get("message", "")).strip()
+    ticker  = str(body.get("ticker", "")).strip().upper()
+    history = body.get("history", [])
+
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        return jsonify({"error": "AI Chat is not configured (ANTHROPIC_API_KEY missing)"}), 503
+
+    # Build system context
+    system_parts = [
+        "You are EconoWatch AI, a concise financial assistant. "
+        "Answer questions about stocks, economic indicators, and macro trends. "
+        "Be brief and direct. No unsolicited disclaimers."
+    ]
+    if ticker and _is_valid_ticker_format(ticker):
+        rows = database.get_stock_history(ticker, 5)
+        if rows:
+            latest = rows[-1]
+            system_parts.append(
+                f"Current context: {ticker} last close ${latest['close']:.2f} on {latest['date']}."
+            )
+
+    system_prompt = " ".join(system_parts)
+
+    # Sanitize history — keep last 10 turns, valid roles only
+    safe_history = [
+        {"role": turn["role"], "content": str(turn["content"])[:2000]}
+        for turn in history[-10:]
+        if turn.get("role") in ("user", "assistant") and turn.get("content")
+    ]
+    safe_history.append({"role": "user", "content": message})
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=anthropic_key)
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            system=system_prompt,
+            messages=safe_history,
+        )
+        reply = resp.content[0].text.strip()
+        return jsonify({"reply": reply}), 200
+    except Exception as e:
+        err_str = str(e)
+        if "rate_limit" in err_str.lower() or "RateLimitError" in type(e).__name__:
+            return jsonify({"error": "Rate limit. Try again in a moment."}), 429
+        logger.error("AI chat error: %s", e)
+        return jsonify({"error": "AI response unavailable"}), 503
+
+
+# ── Settings Route ────────────────────────────────────
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings_page():
+    """Route: GET /settings — Render settings page. POST /settings — Save settings."""
+    if request.method == "POST":
+        if not _validate_csrf():
+            return jsonify({"error": "Invalid CSRF token"}), 403
+
+        for key in SETTINGS_KEYS:
+            value = request.form.get(key, "").strip()
+            # Sensitive fields: only overwrite when a new value is submitted
+            if key in SETTINGS_SENSITIVE and not value:
+                continue
+            database.set_setting(key, value)
+
+        # Validate license key immediately after save if one was submitted
+        license_key = request.form.get("license_key", "").strip()
+        if license_key:
+            valid = _validate_license_key(license_key)
+            if valid:
+                flash("Settings saved. License key validated — Pro features unlocked!", "success")
+            else:
+                flash("Settings saved. License key could not be validated.", "warning")
+        else:
+            flash("Settings saved.", "success")
+
+        return redirect(url_for("settings_page"))
+
+    # GET — load current settings
+    settings = {key: database.get_setting(key) for key in SETTINGS_KEYS}
+    csrf_token = _generate_csrf_token()
+    pro_unlocked = _is_pro_unlocked()
+    return render_template("settings.html", settings=settings, csrf_token=csrf_token,
+                           pro_unlocked=pro_unlocked)
 
 
 # ── Error Handlers ───────────────────────────────────
